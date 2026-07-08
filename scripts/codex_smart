@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG_FILE="${CODEX2KEYS_CONFIG:-$HOME/.codex2keys.env}"
+
+if [ -f "$CONFIG_FILE" ]; then
+  # shellcheck disable=SC1090
+  source "$CONFIG_FILE"
+fi
+
+CODEX_BIN="${CODEX_BIN:-$HOME/.local/bin/codex}"
+CODEX_PROFILE_1="${CODEX_PROFILE_1:-$HOME/.codex-1}"
+CODEX_PROFILE_2="${CODEX_PROFILE_2:-$HOME/.codex-2}"
+CODEX_ACTIVE_FILE="${CODEX_ACTIVE_FILE:-$HOME/.codex-active}"
+CODEX_LOCK_FILE="${CODEX_LOCK_FILE:-/tmp/codex-shared-state.lock}"
+
+read_active() {
+  local active
+  active="$(cat "$CODEX_ACTIVE_FILE" 2>/dev/null || echo 1)"
+  if [ "$active" != "1" ] && [ "$active" != "2" ]; then
+    active="1"
+  fi
+  echo "$active"
+}
+
+set_active() {
+  local choice="$1"
+  if [ "$choice" != "1" ] && [ "$choice" != "2" ]; then
+    echo "Invalid account: $choice" >&2
+    exit 1
+  fi
+
+  echo "$choice" > "$CODEX_ACTIVE_FILE"
+  chmod 600 "$CODEX_ACTIVE_FILE"
+}
+
+other_account() {
+  if [ "$1" = "1" ]; then
+    echo "2"
+  else
+    echo "1"
+  fi
+}
+
+home_for() {
+  if [ "$1" = "1" ]; then
+    echo "$CODEX_PROFILE_1"
+  else
+    echo "$CODEX_PROFILE_2"
+  fi
+}
+
+show_status() {
+  local active
+  active="$(read_active)"
+
+  echo "Active Codex account: $active"
+  echo
+
+  echo "Account 1:"
+  CODEX_HOME="$CODEX_PROFILE_1" "$CODEX_BIN" login status || true
+
+  echo
+  echo "Account 2:"
+  CODEX_HOME="$CODEX_PROFILE_2" "$CODEX_BIN" login status || true
+}
+
+run_codex() {
+  local active="$1"
+  shift
+
+  local home
+  home="$(home_for "$active")"
+
+  if [ ! -x "$CODEX_BIN" ]; then
+    echo "CODEX_BIN is not executable: $CODEX_BIN" >&2
+    exit 1
+  fi
+
+  if [ ! -d "$home" ]; then
+    echo "Missing CODEX_HOME for account $active: $home" >&2
+    exit 1
+  fi
+
+  echo
+  echo "Using Codex account: $active"
+  echo
+
+  CODEX_HOME="$home" flock -n "$CODEX_LOCK_FILE" "$CODEX_BIN" "$@"
+}
+
+case "${1:-}" in
+  status)
+    show_status
+    exit 0
+    ;;
+
+  switch)
+    codex_switch
+    exit 0
+    ;;
+
+  1|2)
+    codex_switch "$1"
+    exit 0
+    ;;
+
+  --version|-V|version|--help|-h|help|login|logout)
+    active="$(read_active)"
+    CODEX_HOME="$(home_for "$active")" "$CODEX_BIN" "$@"
+    exit $?
+    ;;
+esac
+
+active="$(read_active)"
+
+case "${1:-resume}" in
+  new)
+    shift || true
+    cmd=("$@")
+    ;;
+
+  all)
+    shift || true
+    cmd=(resume --last --all "$@")
+    ;;
+
+  resume|"")
+    shift || true
+    cmd=(resume --last "$@")
+    ;;
+
+  *)
+    cmd=("$@")
+    ;;
+esac
+
+set +e
+run_codex "$active" "${cmd[@]}"
+status=$?
+set -e
+
+echo
+echo "Codex ended."
+echo "Exit status: $status"
+echo "Active account was: $active"
+echo
+
+if [ ! -t 0 ]; then
+  exit "$status"
+fi
+
+other="$(other_account "$active")"
+read -r -p "Switch to account $other and resume? [y/N] " answer
+
+case "$answer" in
+  y|Y|yes|YES|s|S)
+    set_active "$other"
+    echo
+    echo "Switched Codex account: $active -> $other"
+    echo "Resuming with account $other..."
+    echo
+
+    set +e
+    run_codex "$other" resume --last
+    status2=$?
+    set -e
+
+    exit "$status2"
+    ;;
+
+  *)
+    echo "Keeping active Codex account: $active"
+    exit "$status"
+    ;;
+esac
