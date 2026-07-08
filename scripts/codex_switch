@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG_FILE="${CODEX2KEYS_CONFIG:-$HOME/.codex2keys.env}"
+
+if [ -f "$CONFIG_FILE" ]; then
+  # shellcheck disable=SC1090
+  source "$CONFIG_FILE"
+fi
+
+CODEX_ACTIVE_FILE="${CODEX_ACTIVE_FILE:-$HOME/.codex-active}"
+
+read_active() {
+  local active
+  active="$(cat "$CODEX_ACTIVE_FILE" 2>/dev/null || echo 1)"
+  if [ "$active" != "1" ] && [ "$active" != "2" ]; then
+    active="1"
+  fi
+  echo "$active"
+}
+
+set_active() {
+  local choice="$1"
+  if [ "$choice" != "1" ] && [ "$choice" != "2" ]; then
+    echo "Invalid account: $choice" >&2
+    exit 1
+  fi
+
+  echo "$choice" > "$CODEX_ACTIVE_FILE"
+  chmod 600 "$CODEX_ACTIVE_FILE"
+}
+
+case "${1:-toggle}" in
+  status)
+    echo "Active Codex account: $(read_active)"
+    ;;
+
+  1|2)
+    set_active "$1"
+    echo "Active Codex account is now: $1"
+    ;;
+
+  toggle|"")
+    current="$(read_active)"
+    if [ "$current" = "1" ]; then
+      next="2"
+    else
+      next="1"
+    fi
+
+    set_active "$next"
+    echo "Switched Codex account: $current -> $next"
+    ;;
+
+  *)
+    echo "Usage: codex_switch [1|2|status]" >&2
+    exit 1
+    ;;
+esac
