@@ -1,0 +1,11 @@
+# Local runtime files
+.codex2keys.env
+.codex-active
+
+# OS/editor noise
+.DS_Store
+*.swp
+*.swo
+
+# Logs
+*.log
