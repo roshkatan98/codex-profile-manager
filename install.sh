@@ -4,19 +4,19 @@ set -euo pipefail
 # codex2keys installer
 #
 # Required or recommended variables:
-#   CODEX_BIN             Path to the original Codex binary. Default: $HOME/.local/bin/codex
-#   CODEX_ORIGINAL_HOME   Current Codex home. Default: $HOME/.codex
-#   CODEX_PROFILE_1       Profile 1 home. Default: $HOME/.codex-1
-#   CODEX_PROFILE_2       Profile 2 home. Default: $HOME/.codex-2
-#   CODEX_ACTIVE_FILE     Active account marker. Default: $HOME/.codex-active
-#   CODEX_LOCK_FILE       Lock file. Default: /tmp/codex-shared-state.lock
-#   INSTALL_BIN_DIR       Target directory for wrappers. Default: $HOME/.local/bin
+#   CODEX_BIN              Path to the original Codex binary. Default: $HOME/.local/bin/codex
+#   CODEX_ORIGINAL_HOME    Current Codex home. Default: $HOME/.codex
+#   CODEX_ACCOUNTS         N-account map. Example: "1:$HOME/.codex-1 2:$HOME/.codex-2 3:$HOME/.codex-3"
+#   CODEX_ACCOUNT_IDS      Used only if CODEX_ACCOUNTS is not set. Default: "1 2"
+#   CODEX_ACTIVE_FILE      Active account marker. Default: $HOME/.codex-active
+#   CODEX_LOCK_FILE        Lock file. Default: /tmp/codex-shared-state.lock
+#   INSTALL_BIN_DIR        Target directory for wrappers. Default: $HOME/.local/bin
 #   INSTALL_SHELL_FUNCTIONS  1 to append shell functions to ~/.bashrc. Default: 0
 
 CODEX_BIN="${CODEX_BIN:-$HOME/.local/bin/codex}"
 CODEX_ORIGINAL_HOME="${CODEX_ORIGINAL_HOME:-$HOME/.codex}"
-CODEX_PROFILE_1="${CODEX_PROFILE_1:-$HOME/.codex-1}"
-CODEX_PROFILE_2="${CODEX_PROFILE_2:-$HOME/.codex-2}"
+CODEX_ACCOUNT_IDS="${CODEX_ACCOUNT_IDS:-1 2}"
+CODEX_ACCOUNTS="${CODEX_ACCOUNTS:-}"
 CODEX_ACTIVE_FILE="${CODEX_ACTIVE_FILE:-$HOME/.codex-active}"
 CODEX_LOCK_FILE="${CODEX_LOCK_FILE:-/tmp/codex-shared-state.lock}"
 INSTALL_BIN_DIR="${INSTALL_BIN_DIR:-$HOME/.local/bin}"
@@ -33,6 +33,40 @@ info() {
   echo "### $*"
 }
 
+if [ -z "$CODEX_ACCOUNTS" ]; then
+  for id in $CODEX_ACCOUNT_IDS; do
+    CODEX_ACCOUNTS="$CODEX_ACCOUNTS $id:$HOME/.codex-$id"
+  done
+  CODEX_ACCOUNTS="${CODEX_ACCOUNTS# }"
+fi
+
+account_ids() {
+  local entry
+  for entry in $CODEX_ACCOUNTS; do
+    echo "${entry%%:*}"
+  done
+}
+
+account_path() {
+  local wanted="$1"
+  local entry id path
+  for entry in $CODEX_ACCOUNTS; do
+    id="${entry%%:*}"
+    path="${entry#*:}"
+    if [ "$id" = "$wanted" ]; then
+      echo "$path"
+      return 0
+    fi
+  done
+  return 1
+}
+
+first_account() {
+  account_ids | head -n 1
+}
+
+account_count="$(account_ids | wc -l | tr -d ' ')"
+[ "$account_count" -ge 2 ] || fail "At least two accounts are required. Set CODEX_ACCOUNTS or CODEX_ACCOUNT_IDS."
 [ -x "$CODEX_BIN" ] || fail "CODEX_BIN is not executable: $CODEX_BIN"
 [ -d "$CODEX_ORIGINAL_HOME" ] || fail "CODEX_ORIGINAL_HOME does not exist: $CODEX_ORIGINAL_HOME"
 [ -f "$CODEX_ORIGINAL_HOME/auth.json" ] || fail "Missing auth.json in $CODEX_ORIGINAL_HOME. Log into Codex first."
@@ -41,8 +75,7 @@ info "Configuration"
 cat <<EOF
 CODEX_BIN=$CODEX_BIN
 CODEX_ORIGINAL_HOME=$CODEX_ORIGINAL_HOME
-CODEX_PROFILE_1=$CODEX_PROFILE_1
-CODEX_PROFILE_2=$CODEX_PROFILE_2
+CODEX_ACCOUNTS=$CODEX_ACCOUNTS
 CODEX_ACTIVE_FILE=$CODEX_ACTIVE_FILE
 CODEX_LOCK_FILE=$CODEX_LOCK_FILE
 INSTALL_BIN_DIR=$INSTALL_BIN_DIR
@@ -75,38 +108,42 @@ cp -a "$CODEX_ORIGINAL_HOME" "$backup"
 echo "Backup created: $backup"
 
 info "Create profile directories"
-if [ -e "$CODEX_PROFILE_1" ] || [ -e "$CODEX_PROFILE_2" ]; then
-  fail "Profile directory already exists. Remove it manually if you want to reinstall."
-fi
-
-mkdir -p "$CODEX_PROFILE_1" "$CODEX_PROFILE_2" "$INSTALL_BIN_DIR"
-
-info "Copy auth.json separately"
-cp -a "$CODEX_ORIGINAL_HOME/auth.json" "$CODEX_PROFILE_1/auth.json"
-cp -a "$CODEX_ORIGINAL_HOME/auth.json" "$CODEX_PROFILE_2/auth.json"
-chmod 600 "$CODEX_PROFILE_1/auth.json" "$CODEX_PROFILE_2/auth.json"
-
-info "Link all other Codex state from original home"
-for item in "$CODEX_ORIGINAL_HOME"/* "$CODEX_ORIGINAL_HOME"/.[!.]*; do
-  [ -e "$item" ] || continue
-  name="$(basename "$item")"
-
-  if [ "$name" = "auth.json" ]; then
-    continue
+for id in $(account_ids); do
+  profile_dir="$(account_path "$id")"
+  if [ -e "$profile_dir" ]; then
+    fail "Profile directory already exists for account $id: $profile_dir"
   fi
-
-  ln -s "$item" "$CODEX_PROFILE_1/$name"
-  ln -s "$item" "$CODEX_PROFILE_2/$name"
+  mkdir -p "$profile_dir"
 done
 
-chmod 700 "$CODEX_PROFILE_1" "$CODEX_PROFILE_2"
+mkdir -p "$INSTALL_BIN_DIR"
+
+info "Copy auth.json separately and link shared Codex state"
+for id in $(account_ids); do
+  profile_dir="$(account_path "$id")"
+  cp -a "$CODEX_ORIGINAL_HOME/auth.json" "$profile_dir/auth.json"
+  chmod 600 "$profile_dir/auth.json"
+
+  for item in "$CODEX_ORIGINAL_HOME"/* "$CODEX_ORIGINAL_HOME"/.[!.]*; do
+    [ -e "$item" ] || continue
+    name="$(basename "$item")"
+
+    if [ "$name" = "auth.json" ]; then
+      continue
+    fi
+
+    ln -s "$item" "$profile_dir/$name"
+  done
+
+  chmod 700 "$profile_dir"
+done
 
 info "Write config file"
 cat > "$CONFIG_FILE" <<EOF
 # codex2keys configuration
 CODEX_BIN="$CODEX_BIN"
-CODEX_PROFILE_1="$CODEX_PROFILE_1"
-CODEX_PROFILE_2="$CODEX_PROFILE_2"
+CODEX_ORIGINAL_HOME="$CODEX_ORIGINAL_HOME"
+CODEX_ACCOUNTS="$CODEX_ACCOUNTS"
 CODEX_ACTIVE_FILE="$CODEX_ACTIVE_FILE"
 CODEX_LOCK_FILE="$CODEX_LOCK_FILE"
 EOF
@@ -115,9 +152,11 @@ chmod 600 "$CONFIG_FILE"
 info "Install wrapper scripts"
 install -m 755 "$SCRIPT_DIR/scripts/codex_smart" "$INSTALL_BIN_DIR/codex_smart"
 install -m 755 "$SCRIPT_DIR/scripts/codex_switch" "$INSTALL_BIN_DIR/codex_switch"
+install -m 755 "$SCRIPT_DIR/scripts/codex_add_account" "$INSTALL_BIN_DIR/codex_add_account"
 
 info "Set default active account"
-echo "1" > "$CODEX_ACTIVE_FILE"
+first="$(first_account)"
+echo "$first" > "$CODEX_ACTIVE_FILE"
 chmod 600 "$CODEX_ACTIVE_FILE"
 
 if [ "$INSTALL_SHELL_FUNCTIONS" = "1" ]; then
@@ -130,28 +169,34 @@ else
 fi
 
 info "Verify profiles"
-CODEX_HOME="$CODEX_PROFILE_1" "$CODEX_BIN" login status || true
-CODEX_HOME="$CODEX_PROFILE_2" "$CODEX_BIN" login status || true
+for id in $(account_ids); do
+  profile_dir="$(account_path "$id")"
+  echo
+  echo "Account $id: $profile_dir"
+  CODEX_HOME="$profile_dir" "$CODEX_BIN" login status || true
+done
 
 cat <<EOF
 
 Done.
 
-Next step: log profile 2 into the second account:
+Each generated profile currently has a copy of the original auth.json.
+Keep account $first as-is if it represents your primary account.
+For every additional account, login that profile with the intended account, for example:
 
-  CODEX_HOME="$CODEX_PROFILE_2" "$CODEX_BIN" logout || true
-  CODEX_HOME="$CODEX_PROFILE_2" "$CODEX_BIN" login --device-auth
+  CODEX_HOME="$(account_path "$(account_ids | sed -n '2p')")" "$CODEX_BIN" logout || true
+  CODEX_HOME="$(account_path "$(account_ids | sed -n '2p')")" "$CODEX_BIN" login --device-auth
 
-Then verify the two auth files are different:
+Verify all auth files are different:
 
-  sha256sum "$CODEX_PROFILE_1/auth.json" "$CODEX_PROFILE_2/auth.json"
+  sha256sum $(for id in $(account_ids); do printf '"%s/auth.json" ' "$(account_path "$id")"; done)
 
 Usage:
 
   codex_smart          # resume last session with active account
   codex_smart new      # open new session
-  codex_smart status   # show account status
-  codex_switch         # toggle active account
-  codex_switch 1       # set account 1
-  codex_switch 2       # set account 2
+  codex_smart status   # show all account statuses
+  codex_switch         # rotate to the next account
+  codex_switch 1       # set a specific account id
+  codex_add_account 3  # add another account later
 EOF
