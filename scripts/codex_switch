@@ -10,19 +10,60 @@ fi
 
 CODEX_ACTIVE_FILE="${CODEX_ACTIVE_FILE:-$HOME/.codex-active}"
 
+# Preferred N-account format:
+#   CODEX_ACCOUNTS="1:/home/me/.codex-1 2:/home/me/.codex-2 3:/home/me/.codex-3"
+# Legacy two-account fallback:
+#   CODEX_PROFILE_1 and CODEX_PROFILE_2
+CODEX_ACCOUNTS="${CODEX_ACCOUNTS:-}"
+if [ -z "$CODEX_ACCOUNTS" ]; then
+  CODEX_PROFILE_1="${CODEX_PROFILE_1:-$HOME/.codex-1}"
+  CODEX_PROFILE_2="${CODEX_PROFILE_2:-$HOME/.codex-2}"
+  CODEX_ACCOUNTS="1:$CODEX_PROFILE_1 2:$CODEX_PROFILE_2"
+fi
+
+account_ids() {
+  local entry
+  for entry in $CODEX_ACCOUNTS; do
+    echo "${entry%%:*}"
+  done
+}
+
+account_path() {
+  local wanted="$1"
+  local entry id path
+  for entry in $CODEX_ACCOUNTS; do
+    id="${entry%%:*}"
+    path="${entry#*:}"
+    if [ "$id" = "$wanted" ]; then
+      echo "$path"
+      return 0
+    fi
+  done
+  return 1
+}
+
+first_account() {
+  account_ids | head -n 1
+}
+
+is_known_account() {
+  account_path "$1" >/dev/null 2>&1
+}
+
 read_active() {
   local active
-  active="$(cat "$CODEX_ACTIVE_FILE" 2>/dev/null || echo 1)"
-  if [ "$active" != "1" ] && [ "$active" != "2" ]; then
-    active="1"
+  active="$(cat "$CODEX_ACTIVE_FILE" 2>/dev/null || true)"
+  if ! is_known_account "$active"; then
+    active="$(first_account)"
   fi
   echo "$active"
 }
 
 set_active() {
   local choice="$1"
-  if [ "$choice" != "1" ] && [ "$choice" != "2" ]; then
+  if ! is_known_account "$choice"; then
     echo "Invalid account: $choice" >&2
+    echo "Known accounts: $(account_ids | xargs)" >&2
     exit 1
   fi
 
@@ -30,30 +71,59 @@ set_active() {
   chmod 600 "$CODEX_ACTIVE_FILE"
 }
 
-case "${1:-toggle}" in
-  status)
-    echo "Active Codex account: $(read_active)"
-    ;;
+next_account() {
+  local active="$1"
+  local first=""
+  local previous=""
+  local id
 
-  1|2)
-    set_active "$1"
-    echo "Active Codex account is now: $1"
-    ;;
-
-  toggle|"")
-    current="$(read_active)"
-    if [ "$current" = "1" ]; then
-      next="2"
-    else
-      next="1"
+  while read -r id; do
+    [ -n "$id" ] || continue
+    if [ -z "$first" ]; then
+      first="$id"
     fi
+    if [ "$previous" = "$active" ]; then
+      echo "$id"
+      return 0
+    fi
+    previous="$id"
+  done < <(account_ids)
 
+  echo "$first"
+}
+
+show_status() {
+  local active id path marker
+  active="$(read_active)"
+  echo "Active Codex account: $active"
+  echo
+  echo "Configured accounts:"
+
+  while read -r id; do
+    [ -n "$id" ] || continue
+    path="$(account_path "$id")"
+    marker=" "
+    if [ "$id" = "$active" ]; then
+      marker="*"
+    fi
+    echo " $marker $id -> $path"
+  done < <(account_ids)
+}
+
+case "${1:-toggle}" in
+  status|list)
+    show_status
+    ;;
+
+  next|toggle|"")
+    current="$(read_active)"
+    next="$(next_account "$current")"
     set_active "$next"
     echo "Switched Codex account: $current -> $next"
     ;;
 
   *)
-    echo "Usage: codex_switch [1|2|status]" >&2
-    exit 1
+    set_active "$1"
+    echo "Active Codex account is now: $1"
     ;;
 esac
