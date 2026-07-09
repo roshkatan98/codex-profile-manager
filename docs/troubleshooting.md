@@ -79,24 +79,44 @@ pgrep -af codex || true
 
 Close the other session and try again.
 
-## Account 1 and account 2 are the same account
+## One or more accounts are the same account
 
 Compare the auth files:
 
 ```bash
-sha256sum "$HOME/.codex-1/auth.json" "$HOME/.codex-2/auth.json"
+sha256sum "$HOME/.codex-1/auth.json" "$HOME/.codex-2/auth.json" "$HOME/.codex-3/auth.json"
 ```
 
-If the hashes are identical, profile 2 is still logged into the same account as profile 1.
+If two hashes are identical, those profiles are logged into the same account.
 
-Fix:
+Fix the affected profile, for example account 3:
 
 ```bash
-CODEX_HOME="$HOME/.codex-2" "$HOME/.local/bin/codex" logout || true
-CODEX_HOME="$HOME/.codex-2" "$HOME/.local/bin/codex" login --device-auth
+CODEX_HOME="$HOME/.codex-3" "$HOME/.local/bin/codex" logout || true
+CODEX_HOME="$HOME/.codex-3" "$HOME/.local/bin/codex" login --device-auth
 ```
 
-Use the second account in the browser login flow.
+Use the intended account in the browser login flow.
+
+## `codex_switch 3` says invalid account
+
+Check your config:
+
+```bash
+cat "$HOME/.codex2keys.env"
+```
+
+You should have a `CODEX_ACCOUNTS` line that includes account 3:
+
+```bash
+CODEX_ACCOUNTS="1:$HOME/.codex-1 2:$HOME/.codex-2 3:$HOME/.codex-3"
+```
+
+If not, add it manually or run:
+
+```bash
+codex_add_account 3
+```
 
 ## `token_invalidated` or `Please try signing in again`
 
@@ -107,11 +127,11 @@ CODEX_HOME="$HOME/.codex-1" "$HOME/.local/bin/codex" logout || true
 CODEX_HOME="$HOME/.codex-1" "$HOME/.local/bin/codex" login --device-auth
 ```
 
-or:
+or for account 3:
 
 ```bash
-CODEX_HOME="$HOME/.codex-2" "$HOME/.local/bin/codex" logout || true
-CODEX_HOME="$HOME/.codex-2" "$HOME/.local/bin/codex" login --device-auth
+CODEX_HOME="$HOME/.codex-3" "$HOME/.local/bin/codex" logout || true
+CODEX_HOME="$HOME/.codex-3" "$HOME/.local/bin/codex" login --device-auth
 ```
 
 ## `source ~/.bashrc` fails with `unbound variable`
