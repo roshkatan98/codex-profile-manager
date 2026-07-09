@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG_FILE="${CODEX2KEYS_CONFIG:-$HOME/.codex2keys.env}"
+
+if [ -f "$CONFIG_FILE" ]; then
+  # shellcheck disable=SC1090
+  source "$CONFIG_FILE"
+fi
+
+CODEX_BIN="${CODEX_BIN:-$HOME/.local/bin/codex}"
+CODEX_ORIGINAL_HOME="${CODEX_ORIGINAL_HOME:-$HOME/.codex}"
+CODEX_ACTIVE_FILE="${CODEX_ACTIVE_FILE:-$HOME/.codex-active}"
+CODEX_LOCK_FILE="${CODEX_LOCK_FILE:-/tmp/codex-shared-state.lock}"
+CODEX_ACCOUNTS="${CODEX_ACCOUNTS:-}"
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  codex_add_account <account_id> [profile_dir]
+
+Examples:
+  codex_add_account 3
+  codex_add_account work ~/.codex-work
+
+The script creates a new profile directory with a separate auth.json and symlinks all other Codex state from CODEX_ORIGINAL_HOME.
+USAGE
+}
+
+[ "${1:-}" != "" ] || { usage; exit 1; }
+
+NEW_ID="$1"
+NEW_DIR="${2:-$HOME/.codex-$NEW_ID}"
+
+if [ ! -d "$CODEX_ORIGINAL_HOME" ]; then
+  echo "Missing CODEX_ORIGINAL_HOME: $CODEX_ORIGINAL_HOME" >&2
+  exit 1
+fi
+
+if [ ! -f "$CODEX_ORIGINAL_HOME/auth.json" ]; then
+  echo "Missing auth.json in CODEX_ORIGINAL_HOME: $CODEX_ORIGINAL_HOME" >&2
+  exit 1
+fi
+
+if [ -e "$NEW_DIR" ]; then
+  echo "Profile directory already exists: $NEW_DIR" >&2
+  exit 1
+fi
+
+if [ -n "$CODEX_ACCOUNTS" ]; then
+  for entry in $CODEX_ACCOUNTS; do
+    id="${entry%%:*}"
+    if [ "$id" = "$NEW_ID" ]; then
+      echo "Account id already exists in CODEX_ACCOUNTS: $NEW_ID" >&2
+      exit 1
+    fi
+  done
+else
+  # Legacy fallback if the config has not been migrated yet.
+  CODEX_PROFILE_1="${CODEX_PROFILE_1:-$HOME/.codex-1}"
+  CODEX_PROFILE_2="${CODEX_PROFILE_2:-$HOME/.codex-2}"
+  CODEX_ACCOUNTS="1:$CODEX_PROFILE_1 2:$CODEX_PROFILE_2"
+fi
+
+echo "### Create profile: $NEW_ID -> $NEW_DIR"
+mkdir -p "$NEW_DIR"
+
+# Use the original auth as a temporary placeholder. The user must login this profile after creation.
+cp -a "$CODEX_ORIGINAL_HOME/auth.json" "$NEW_DIR/auth.json"
+chmod 600 "$NEW_DIR/auth.json"
+
+for item in "$CODEX_ORIGINAL_HOME"/* "$CODEX_ORIGINAL_HOME"/.[!.]*; do
+  [ -e "$item" ] || continue
+  name="$(basename "$item")"
+
+  if [ "$name" = "auth.json" ]; then
+    continue
+  fi
+
+  ln -s "$item" "$NEW_DIR/$name"
+done
+
+chmod 700 "$NEW_DIR"
+
+NEW_ACCOUNTS="$CODEX_ACCOUNTS $NEW_ID:$NEW_DIR"
+
+if [ -f "$CONFIG_FILE" ]; then
+  tmp="$(mktemp)"
+  if grep -q '^CODEX_ACCOUNTS=' "$CONFIG_FILE"; then
+    sed "s|^CODEX_ACCOUNTS=.*|CODEX_ACCOUNTS=\"$NEW_ACCOUNTS\"|" "$CONFIG_FILE" > "$tmp"
+  else
+    cat "$CONFIG_FILE" > "$tmp"
+    printf '\nCODEX_ACCOUNTS="%s"\n' "$NEW_ACCOUNTS" >> "$tmp"
+  fi
+  mv "$tmp" "$CONFIG_FILE"
+  chmod 600 "$CONFIG_FILE"
+else
+  cat > "$CONFIG_FILE" <<EOF
+CODEX_BIN="$CODEX_BIN"
+CODEX_ORIGINAL_HOME="$CODEX_ORIGINAL_HOME"
+CODEX_ACTIVE_FILE="$CODEX_ACTIVE_FILE"
+CODEX_LOCK_FILE="$CODEX_LOCK_FILE"
+CODEX_ACCOUNTS="$NEW_ACCOUNTS"
+EOF
+  chmod 600 "$CONFIG_FILE"
+fi
+
+cat <<EOF
+
+Done.
+
+Now login the new profile with the intended Codex account:
+
+  CODEX_HOME="$NEW_DIR" "$CODEX_BIN" logout || true
+  CODEX_HOME="$NEW_DIR" "$CODEX_BIN" login --device-auth
+
+Then verify:
+
+  codex_smart status
+  sha256sum $(for entry in $NEW_ACCOUNTS; do printf '"%s/auth.json" ' "${entry#*:}"; done)
+EOF
