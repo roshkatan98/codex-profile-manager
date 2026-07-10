@@ -68,7 +68,7 @@ for command_name in codexpm codex_smart codex_switch codex_add_account; do
     rm -f "$target"
   fi
 done
-rm -rf "$INSTALL_DATA_DIR/bin" "$INSTALL_DATA_DIR/lib"
+rm -rf -- "${INSTALL_DATA_DIR:?}/bin" "${INSTALL_DATA_DIR:?}/lib"
 
 if [ -f "$HOME/.bashrc" ]; then
   begin_marker="# >>> codex-profile-manager >>>"
