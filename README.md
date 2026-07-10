@@ -107,10 +107,11 @@ codexpm use 2                 # select account 2
 codexpm next                  # rotate to the next configured account
 codexpm add 4                 # add another profile without copying auth
 codexpm login 4               # login the new profile
+codexpm logout 4              # logout one profile without touching the others
 codexpm run                   # resume the latest session
 codexpm run new               # start a fresh Codex session
 codexpm run all               # resume across all sessions
-codexpm doctor                # validate installation and shared links
+codexpm doctor                # validate permissions, auth isolation, and shared links
 codexpm migrate               # migrate legacy config and links
 ```
 
@@ -159,6 +160,8 @@ Override it with:
 export CODEX_PROFILE_MANAGER_CONFIG=/custom/path/config.env
 ```
 
+The custom path is honored by install, migration, and later profile additions.
+
 See [`templates/config.env.example`](templates/config.env.example).
 
 ### Shared-state allowlist
@@ -187,7 +190,7 @@ See [`docs/migration.md`](docs/migration.md).
 
 ## Backup and disk space
 
-The installer performs a complete backup of the original Codex home. It checks free space first and stops rather than filling the disk.
+The installer performs a complete backup of the original Codex home. It checks free space first and stops rather than filling the disk. The backup directory must not be inside the original Codex home.
 
 Choose another filesystem when needed:
 
@@ -203,7 +206,7 @@ bash install.sh --skip-backup
 
 ## Uninstall
 
-Remove installed commands while preserving profiles and configuration:
+Remove installed commands and managed shell functions while preserving profiles and configuration:
 
 ```bash
 bash uninstall.sh
@@ -215,7 +218,7 @@ Purge manager profiles and configuration as well:
 bash uninstall.sh --purge
 ```
 
-The original `~/.codex` directory is never removed.
+The original `~/.codex` directory and backups are never removed.
 
 ## Security
 
