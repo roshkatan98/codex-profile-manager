@@ -1,0 +1,250 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+resolve_self() {
+  local source="${BASH_SOURCE[0]}"
+  while [ -L "$source" ]; do
+    local dir
+    dir="$(cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd)"
+    source="$(readlink "$source")"
+    [[ "$source" != /* ]] && source="$dir/$source"
+  done
+  cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd
+}
+
+BIN_DIR="$(resolve_self)"
+LIB_DIR="${CODEXPM_LIB_DIR:-$BIN_DIR/../lib}"
+
+# shellcheck source=../lib/config.sh
+source "$LIB_DIR/config.sh"
+# shellcheck source=../lib/profiles.sh
+source "$LIB_DIR/profiles.sh"
+
+codexpm_load_config
+codexpm_validate_config
+
+usage() {
+  cat <<'EOF_USAGE'
+codex-profile-manager (codexpm)
+
+Usage:
+  codexpm list
+  codexpm status
+  codexpm use <account>
+  codexpm next
+  codexpm add <account> [profile_dir]
+  codexpm login <account>
+  codexpm run [new|all|resume|-- <codex args...>]
+  codexpm doctor
+  codexpm migrate
+  codexpm config-path
+  codexpm version
+
+Examples:
+  codexpm use 2
+  codexpm next
+  codexpm add 3
+  codexpm login 3
+  codexpm run
+  codexpm run new
+EOF_USAGE
+}
+
+require_codex() {
+  [ -x "$CODEX_BIN" ] || {
+    echo "Codex binary is not executable: $CODEX_BIN" >&2
+    exit 1
+  }
+}
+
+show_list() {
+  local active id path marker auth
+  active="$(codexpm_read_active)"
+  printf 'Active account: %s\n\n' "$active"
+  while IFS= read -r id; do
+    path="$(codexpm_account_path "$id")"
+    marker=" "
+    [ "$id" != "$active" ] || marker="*"
+    auth="not logged in"
+    [ ! -f "$path/auth.json" ] || auth="auth present"
+    printf '%s %-12s %s (%s)\n' "$marker" "$id" "$path" "$auth"
+  done < <(codexpm_account_ids)
+}
+
+show_status() {
+  local active id path marker
+  require_codex
+  active="$(codexpm_read_active)"
+  printf 'Active account: %s\n\n' "$active"
+  while IFS= read -r id; do
+    path="$(codexpm_account_path "$id")"
+    marker=""
+    [ "$id" != "$active" ] || marker=" [active]"
+    printf 'Account %s%s\n' "$id" "$marker"
+    printf 'CODEX_HOME=%s\n' "$path"
+    CODEX_HOME="$path" "$CODEX_BIN" login status || true
+    echo
+  done < <(codexpm_account_ids)
+}
+
+run_codex() {
+  local active home status next answer
+  active="$(codexpm_read_active)"
+  home="$(codexpm_account_path "$active")"
+  require_codex
+  [ -d "$home" ] || {
+    echo "Profile directory does not exist: $home" >&2
+    exit 1
+  }
+
+  mkdir -p "$(dirname "$CODEX_LOCK_FILE")"
+  echo "Using Codex account: $active"
+  set +e
+  CODEX_HOME="$home" flock -n "$CODEX_LOCK_FILE" "$CODEX_BIN" "$@"
+  status=$?
+  set -e
+
+  if [ "$CODEX_PROMPT_AFTER_EXIT" != "1" ] || [ ! -t 0 ]; then
+    return "$status"
+  fi
+
+  next="$(codexpm_next_account "$active")"
+  [ "$next" != "$active" ] || return "$status"
+  echo
+  read -r -p "Switch to account $next and resume? [y/N] " answer
+  case "$answer" in
+    y|Y|yes|YES)
+      codexpm_set_active "$next"
+      echo "Switched Codex account: $active -> $next"
+      CODEX_HOME="$(codexpm_account_path "$next")" flock -n "$CODEX_LOCK_FILE" "$CODEX_BIN" resume --last
+      ;;
+    *)
+      echo "Keeping active Codex account: $active"
+      return "$status"
+      ;;
+  esac
+}
+
+run_command() {
+  case "${1:-resume}" in
+    new)
+      shift || true
+      run_codex "$@"
+      ;;
+    all)
+      shift || true
+      run_codex resume --last --all "$@"
+      ;;
+    resume|"")
+      shift || true
+      run_codex resume --last "$@"
+      ;;
+    --)
+      shift
+      run_codex "$@"
+      ;;
+    *)
+      run_codex "$@"
+      ;;
+  esac
+}
+
+add_account() {
+  local id="${1:-}" profile
+  [ -n "$id" ] || { echo "Usage: codexpm add <account> [profile_dir]" >&2; exit 1; }
+  profile="${2:-$HOME/.codex-$id}"
+  codexpm_create_profile "$id" "$profile" 0
+  codexpm_add_account_to_config "$id" "$profile"
+  cat <<EOF_ADDED
+Added account $id at $profile.
+No authentication token was copied.
+
+Login with:
+  codexpm login $id
+EOF_ADDED
+}
+
+login_account() {
+  local id="${1:-}" profile
+  [ -n "$id" ] || { echo "Usage: codexpm login <account>" >&2; exit 1; }
+  profile="$(codexpm_account_path "$id")" || { echo "Unknown account: $id" >&2; exit 1; }
+  require_codex
+  mkdir -p "$profile"
+  CODEX_HOME="$profile" "$CODEX_BIN" login --device-auth
+}
+
+doctor() {
+  local failed=0 id path item
+  echo "Config: $CODEXPM_CONFIG_FILE"
+  echo "Codex binary: $CODEX_BIN"
+  echo "Original home: $CODEX_ORIGINAL_HOME"
+  echo "Lock file: $CODEX_LOCK_FILE"
+  echo
+
+  [ -x "$CODEX_BIN" ] || { echo "FAIL: Codex binary is not executable"; failed=1; }
+  [ -d "$CODEX_ORIGINAL_HOME" ] || { echo "FAIL: Original Codex home is missing"; failed=1; }
+
+  while IFS= read -r id; do
+    path="$(codexpm_account_path "$id")"
+    if [ ! -d "$path" ]; then
+      echo "FAIL: Profile $id is missing: $path"
+      failed=1
+      continue
+    fi
+    echo "OK: Profile $id exists: $path"
+    [ -f "$path/auth.json" ] && echo "OK: Profile $id has auth.json" || echo "INFO: Profile $id is not logged in"
+    while IFS= read -r item; do
+      [ -L "$path/$(basename "$item")" ] || {
+        echo "FAIL: Missing shared link for profile $id: $(basename "$item")"
+        failed=1
+      }
+    done < <(codexpm_shared_candidates)
+  done < <(codexpm_account_ids)
+
+  if [ "$failed" -eq 0 ]; then
+    echo "Doctor completed successfully."
+  else
+    echo "Doctor found problems." >&2
+  fi
+  return "$failed"
+}
+
+migrate() {
+  local id path
+  if [ "$CODEXPM_USING_LEGACY_CONFIG" = "1" ]; then
+    echo "Migrating legacy config from $CODEXPM_LEGACY_CONFIG"
+  fi
+  codexpm_write_config "$CODEXPM_DEFAULT_CONFIG"
+
+  while IFS= read -r id; do
+    path="$(codexpm_account_path "$id")"
+    codexpm_migrate_profile_links "$path"
+  done < <(codexpm_account_ids)
+
+  echo "Migration complete: $CODEXPM_DEFAULT_CONFIG"
+}
+
+case "${1:-help}" in
+  help|-h|--help) usage ;;
+  version|--version|-V) echo "$CODEXPM_NAME $CODEXPM_VERSION" ;;
+  list) show_list ;;
+  status) show_status ;;
+  use)
+    [ -n "${2:-}" ] || { echo "Usage: codexpm use <account>" >&2; exit 1; }
+    codexpm_set_active "$2"
+    echo "Active Codex account is now: $2"
+    ;;
+  next)
+    current="$(codexpm_read_active)"
+    next="$(codexpm_next_account "$current")"
+    codexpm_set_active "$next"
+    echo "Switched Codex account: $current -> $next"
+    ;;
+  add) shift; add_account "$@" ;;
+  login) shift; login_account "$@" ;;
+  run) shift; run_command "$@" ;;
+  doctor) doctor ;;
+  migrate) migrate ;;
+  config-path) echo "$CODEXPM_CONFIG_FILE" ;;
+  *) echo "Unknown command: $1" >&2; usage >&2; exit 1 ;;
+esac
