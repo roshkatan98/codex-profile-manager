@@ -1,24 +1,52 @@
 # codex-profile-manager
 
+[![CI](https://github.com/roshkatan98/codex-profile-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/roshkatan98/codex-profile-manager/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Shell](https://img.shields.io/badge/shell-Bash%204%2B-4EAA25?logo=gnubash&logoColor=white)](https://www.gnu.org/software/bash/)
+[![Platform](https://img.shields.io/badge/platform-Linux-blue?logo=linux&logoColor=white)](https://www.kernel.org/)
+
 An unofficial profile manager for Codex CLI.
 
 Use multiple legitimate Codex authentication profiles on one machine while sharing the same sessions, history, configuration, and project context.
 
 > This project is not affiliated with or endorsed by OpenAI. It does not modify the Codex binary and is not intended to bypass service limits or terms.
 
+## Demo
+
+```console
+$ codexpm list
+Active account: personal
+
+* personal     /home/user/.codex-personal (auth present)
+  work         /home/user/.codex-work     (auth present)
+  backup       /home/user/.codex-backup   (auth present)
+
+$ codexpm use work
+Active Codex account is now: work
+
+$ codexpm run
+Using Codex account: work
+
+# Work normally, then exit with /quit
+Switch to account backup and resume? [y/N] y
+Switched Codex account: work -> backup
+```
+
 ## Why this exists
 
 Codex stores local state under a Codex home directory, usually `~/.codex`. If every account uses a completely separate home, sessions and context become fragmented. If every account shares the same home, authentication collides.
 
-`codex-profile-manager` keeps authentication separate and shares only an explicit allowlist of state:
+`codex-profile-manager` keeps authentication separate and shares only an explicit allowlist of state.
 
-```text
-~/.codex                  original Codex home, left untouched
-~/.codex-1/auth.json      authentication for account 1
-~/.codex-2/auth.json      authentication for account 2
-~/.codex-3/auth.json      authentication for account 3
-~/.codex-*/sessions       symlink to shared sessions
-~/.codex-*/config.toml    symlink to shared configuration
+```mermaid
+flowchart TB
+    shared["~/.codex\nShared sessions, history, config and known state"]
+    p1["~/.codex-personal\nprivate auth.json"]
+    p2["~/.codex-work\nprivate auth.json"]
+    p3["~/.codex-backup\nprivate auth.json"]
+    p1 -->|allowlisted symlinks| shared
+    p2 -->|allowlisted symlinks| shared
+    p3 -->|allowlisted symlinks| shared
 ```
 
 Unknown future Codex files are not shared automatically.
@@ -37,10 +65,12 @@ Unknown future Codex files are not shared automatically.
 
 ## Requirements
 
-- Linux or another Unix-like system
+- Linux
 - Bash 4+
 - Codex CLI already installed and logged in once
 - `flock`, `readlink`, `du`, `df`, `awk`, and standard coreutils
+
+Native Windows and standard macOS installations are not currently supported. See the [FAQ](docs/FAQ.md).
 
 ## Quick start
 
@@ -121,8 +151,6 @@ The rotation order is the order in `CODEX_ACCOUNTS`:
 CODEX_ACCOUNTS="main:$HOME/.codex-main work:$HOME/.codex-work backup:$HOME/.codex-backup"
 ```
 
-This rotates as:
-
 ```text
 main -> work -> backup -> main
 ```
@@ -160,9 +188,7 @@ Override it with:
 export CODEX_PROFILE_MANAGER_CONFIG=/custom/path/config.env
 ```
 
-The custom path is honored by install, migration, and later profile additions.
-
-See [`templates/config.env.example`](templates/config.env.example).
+The custom path is honored by install, migration, and later profile additions. See [`templates/config.env.example`](templates/config.env.example).
 
 ### Shared-state allowlist
 
@@ -192,8 +218,6 @@ See [`docs/migration.md`](docs/migration.md).
 
 The installer performs a complete backup of the original Codex home. It checks free space first and stops rather than filling the disk. The backup directory must not be inside the original Codex home.
 
-Choose another filesystem when needed:
-
 ```bash
 CODEX_BACKUP_DIR="/mnt/large-volume/codex-backups" bash install.sh --upgrade
 ```
@@ -220,6 +244,16 @@ bash uninstall.sh --purge
 
 The original `~/.codex` directory and backups are never removed.
 
+## Documentation
+
+- [Frequently asked questions](docs/FAQ.md)
+- [Architecture](docs/architecture.md)
+- [Add an account](docs/add-account.md)
+- [Migration](docs/migration.md)
+- [Restore](docs/restore.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [v1.0.0 release notes](docs/releases/v1.0.0.md)
+
 ## Security
 
 Never commit:
@@ -234,7 +268,7 @@ Read [`SECURITY.md`](SECURITY.md) before publishing forks or diagnostics.
 
 ## Project status
 
-The project is designed around observed Codex CLI state layouts, which may change. Run `codexpm doctor` after Codex upgrades and report compatibility issues without including secrets.
+The project is designed around observed Codex CLI state layouts, which may change in future Codex releases. Run `codexpm doctor` after Codex upgrades and report compatibility issues without including secrets.
 
 ## License
 
