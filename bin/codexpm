@@ -34,6 +34,7 @@ Usage:
   codexpm next
   codexpm add <account> [profile_dir]
   codexpm login <account>
+  codexpm logout <account>
   codexpm run [new|all|resume|-- <codex args...>]
   codexpm doctor
   codexpm migrate
@@ -87,40 +88,66 @@ show_status() {
   done < <(codexpm_account_ids)
 }
 
-run_codex() {
-  local active home status next answer
-  active="$(codexpm_read_active)"
-  home="$(codexpm_account_path "$active")"
-  require_codex
+run_codex_once() {
+  local account="$1" home status
+  shift
+  home="$(codexpm_account_path "$account")"
+
   [ -d "$home" ] || {
     echo "Profile directory does not exist: $home" >&2
-    exit 1
+    return 1
   }
 
   mkdir -p "$(dirname "$CODEX_LOCK_FILE")"
-  echo "Using Codex account: $active"
+  exec 9>"$CODEX_LOCK_FILE"
+  if ! flock -n 9; then
+    echo "Another managed Codex session is already using the shared state." >&2
+    exec 9>&-
+    return 75
+  fi
+
+  echo "Using Codex account: $account"
   set +e
-  CODEX_HOME="$home" flock -n "$CODEX_LOCK_FILE" "$CODEX_BIN" "$@"
+  CODEX_HOME="$home" "$CODEX_BIN" "$@"
   status=$?
   set -e
 
-  if [ "$CODEX_PROMPT_AFTER_EXIT" != "1" ] || [ ! -t 0 ]; then
+  flock -u 9 || true
+  exec 9>&-
+  return "$status"
+}
+
+run_codex() {
+  local active status next answer
+  active="$(codexpm_read_active)"
+  require_codex
+
+  set +e
+  run_codex_once "$active" "$@"
+  status=$?
+  set -e
+
+  if [ "$status" -ne 0 ]; then
     return "$status"
   fi
 
+  if [ "$CODEX_PROMPT_AFTER_EXIT" != "1" ] || [ ! -t 0 ]; then
+    return 0
+  fi
+
   next="$(codexpm_next_account "$active")"
-  [ "$next" != "$active" ] || return "$status"
+  [ "$next" != "$active" ] || return 0
   echo
   read -r -p "Switch to account $next and resume? [y/N] " answer
   case "$answer" in
     y|Y|yes|YES)
       codexpm_set_active "$next"
       echo "Switched Codex account: $active -> $next"
-      CODEX_HOME="$(codexpm_account_path "$next")" flock -n "$CODEX_LOCK_FILE" "$CODEX_BIN" resume --last
+      run_codex_once "$next" resume --last
       ;;
     *)
       echo "Keeping active Codex account: $active"
-      return "$status"
+      return 0
       ;;
   esac
 }
@@ -154,7 +181,10 @@ add_account() {
   [ -n "$id" ] || { echo "Usage: codexpm add <account> [profile_dir]" >&2; exit 1; }
   profile="${2:-$HOME/.codex-$id}"
   codexpm_create_profile "$id" "$profile" 0
-  codexpm_add_account_to_config "$id" "$profile"
+  if ! codexpm_add_account_to_config "$id" "$profile"; then
+    rm -rf "$profile"
+    exit 1
+  fi
   cat <<EOF_ADDED
 Added account $id at $profile.
 No authentication token was copied.
@@ -170,11 +200,22 @@ login_account() {
   profile="$(codexpm_account_path "$id")" || { echo "Unknown account: $id" >&2; exit 1; }
   require_codex
   mkdir -p "$profile"
+  chmod 700 "$profile"
   CODEX_HOME="$profile" "$CODEX_BIN" login --device-auth
 }
 
+logout_account() {
+  local id="${1:-}" profile
+  [ -n "$id" ] || { echo "Usage: codexpm logout <account>" >&2; exit 1; }
+  profile="$(codexpm_account_path "$id")" || { echo "Unknown account: $id" >&2; exit 1; }
+  require_codex
+  CODEX_HOME="$profile" "$CODEX_BIN" logout
+}
+
 doctor() {
-  local failed=0 id path item
+  local failed=0 warnings=0 id path item name expected actual mode hash previous linked
+  declare -A auth_hashes=()
+
   echo "Config: $CODEXPM_CONFIG_FILE"
   echo "Codex binary: $CODEX_BIN"
   echo "Original home: $CODEX_ORIGINAL_HOME"
@@ -191,18 +232,77 @@ doctor() {
       failed=1
       continue
     fi
+
     echo "OK: Profile $id exists: $path"
-    [ -f "$path/auth.json" ] && echo "OK: Profile $id has auth.json" || echo "INFO: Profile $id is not logged in"
+    mode="$(stat -c '%a' "$path" 2>/dev/null || true)"
+    if [ "$mode" != "700" ]; then
+      echo "WARN: Profile $id permissions are $mode, expected 700"
+      warnings=$((warnings + 1))
+    fi
+
+    if [ -L "$path/auth.json" ]; then
+      echo "FAIL: Profile $id auth.json must not be a symlink"
+      failed=1
+    elif [ -f "$path/auth.json" ]; then
+      echo "OK: Profile $id has auth.json"
+      mode="$(stat -c '%a' "$path/auth.json" 2>/dev/null || true)"
+      case "$mode" in
+        600|400) ;;
+        *) echo "WARN: Profile $id auth.json permissions are $mode, expected 600"; warnings=$((warnings + 1)) ;;
+      esac
+
+      if command -v sha256sum >/dev/null 2>&1; then
+        hash="$(sha256sum "$path/auth.json" | awk '{print $1}')"
+        previous="${auth_hashes[$hash]:-}"
+        if [ -n "$previous" ]; then
+          echo "WARN: Profiles $previous and $id have identical auth.json content"
+          warnings=$((warnings + 1))
+        else
+          auth_hashes[$hash]="$id"
+        fi
+      fi
+    else
+      echo "INFO: Profile $id is not logged in"
+    fi
+
     while IFS= read -r item; do
-      [ -L "$path/$(basename "$item")" ] || {
-        echo "FAIL: Missing shared link for profile $id: $(basename "$item")"
+      name="$(basename "$item")"
+      linked="$path/$name"
+      if [ ! -L "$linked" ]; then
+        echo "FAIL: Missing shared link for profile $id: $name"
         failed=1
-      }
+        continue
+      fi
+      expected="$(readlink -f "$item")"
+      actual="$(readlink -f "$linked" 2>/dev/null || true)"
+      if [ "$actual" != "$expected" ]; then
+        echo "FAIL: Shared link for profile $id points to the wrong target: $name"
+        failed=1
+      fi
     done < <(codexpm_shared_candidates)
+
+    for linked in "$path"/* "$path"/.[!.]*; do
+      [ -L "$linked" ] || continue
+      name="$(basename "$linked")"
+      [ "$name" != "auth.json" ] || continue
+      if ! codexpm_is_shared_name "$name"; then
+        actual="$(readlink -f "$linked" 2>/dev/null || true)"
+        case "$actual" in
+          "$CODEX_ORIGINAL_HOME"/*)
+            echo "FAIL: Unexpected shared link in profile $id: $name"
+            failed=1
+            ;;
+        esac
+      fi
+    done
   done < <(codexpm_account_ids)
 
   if [ "$failed" -eq 0 ]; then
-    echo "Doctor completed successfully."
+    if [ "$warnings" -eq 0 ]; then
+      echo "Doctor completed successfully."
+    else
+      echo "Doctor completed with $warnings warning(s)."
+    fi
   else
     echo "Doctor found problems." >&2
   fi
@@ -210,18 +310,19 @@ doctor() {
 }
 
 migrate() {
-  local id path
+  local id path target
   if [ "$CODEXPM_USING_LEGACY_CONFIG" = "1" ]; then
     echo "Migrating legacy config from $CODEXPM_LEGACY_CONFIG"
   fi
-  codexpm_write_config "$CODEXPM_DEFAULT_CONFIG"
+  target="$(codexpm_config_write_target)"
+  codexpm_write_config "$target"
 
   while IFS= read -r id; do
     path="$(codexpm_account_path "$id")"
     codexpm_migrate_profile_links "$path"
   done < <(codexpm_account_ids)
 
-  echo "Migration complete: $CODEXPM_DEFAULT_CONFIG"
+  echo "Migration complete: $target"
 }
 
 case "${1:-help}" in
@@ -242,6 +343,7 @@ case "${1:-help}" in
     ;;
   add) shift; add_account "$@" ;;
   login) shift; login_account "$@" ;;
+  logout) shift; logout_account "$@" ;;
   run) shift; run_command "$@" ;;
   doctor) doctor ;;
   migrate) migrate ;;
