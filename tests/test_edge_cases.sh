@@ -164,7 +164,10 @@ export XDG_STATE_HOME="$HOME/.local/state"
 mkdir -p "$HOME/.local/bin" "$XDG_DATA_HOME/codex-profile-manager/bin" "$XDG_DATA_HOME/codex-profile-manager/lib"
 printf 'before\n# >>> codex-profile-manager >>>\ncodex(){ :; }\n# <<< codex-profile-manager <<<\nafter\n' > "$HOME/.bashrc"
 bash "$ROOT_DIR/uninstall.sh" --yes >/dev/null
-! grep -q 'codex-profile-manager' "$HOME/.bashrc"
+if grep -q 'codex-profile-manager' "$HOME/.bashrc"; then
+  echo "Managed Bash block was not removed" >&2
+  exit 1
+fi
 rm -rf "$T9"
 
 printf 'All edge-case tests passed.\n'
