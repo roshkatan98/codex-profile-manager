@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="520" viewBox="0 0 980 520" role="img" aria-labelledby="title desc">
+  <title id="title">codex-profile-manager terminal demo</title>
+  <desc id="desc">A terminal showing profile listing, account selection, and Codex launch.</desc>
+  <rect width="980" height="520" rx="18" fill="#0d1117"/>
+  <rect width="980" height="48" rx="18" fill="#161b22"/>
+  <rect y="30" width="980" height="18" fill="#161b22"/>
+  <circle cx="28" cy="24" r="7" fill="#ff5f56"/>
+  <circle cx="52" cy="24" r="7" fill="#ffbd2e"/>
+  <circle cx="76" cy="24" r="7" fill="#27c93f"/>
+  <text x="490" y="30" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8b949e">codex-profile-manager</text>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" fill="#c9d1d9">
+    <text x="28" y="84"><tspan fill="#7ee787">$</tspan> codexpm list</text>
+    <text x="28" y="116">Active account: personal</text>
+    <text x="28" y="152" fill="#7ee787">* personal</text>
+    <text x="190" y="152" fill="#8b949e">~/.codex-personal</text>
+    <text x="520" y="152" fill="#58a6ff">auth present</text>
+    <text x="28" y="182">  work</text>
+    <text x="190" y="182" fill="#8b949e">~/.codex-work</text>
+    <text x="520" y="182" fill="#58a6ff">auth present</text>
+    <text x="28" y="212">  backup</text>
+    <text x="190" y="212" fill="#8b949e">~/.codex-backup</text>
+    <text x="520" y="212" fill="#58a6ff">auth present</text>
+    <text x="28" y="264"><tspan fill="#7ee787">$</tspan> codexpm use work</text>
+    <text x="28" y="296">Active Codex account is now: <tspan fill="#ffa657">work</tspan></text>
+    <text x="28" y="348"><tspan fill="#7ee787">$</tspan> codexpm run</text>
+    <text x="28" y="380">Using Codex account: <tspan fill="#ffa657">work</tspan></text>
+    <text x="28" y="424" fill="#8b949e"># Exit Codex with /quit</text>
+    <text x="28" y="456">Switch to account backup and resume? [y/N] <tspan fill="#7ee787">y</tspan></text>
+    <text x="28" y="488">Switched Codex account: <tspan fill="#ffa657">work</tspan> → <tspan fill="#d2a8ff">backup</tspan></text>
+  </g>
+</svg>
