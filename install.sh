@@ -64,7 +64,7 @@ codexpm_validate_config
 }
 
 first_account="$(codexpm_first_account)"
-new_config="$CODEXPM_DEFAULT_CONFIG"
+new_config="$(codexpm_config_write_target)"
 
 cat <<EOF_PLAN
 codex-profile-manager installation plan
@@ -100,6 +100,23 @@ if [ "$UPGRADE" != "1" ] && [ -f "$new_config" ]; then
   echo "A configuration already exists: $new_config" >&2
   echo "Rerun with --upgrade." >&2
   exit 1
+fi
+
+if [ "$UPGRADE" != "1" ]; then
+  while IFS= read -r id; do
+    profile="$(codexpm_account_path "$id")"
+    if [ -e "$profile" ] || [ -L "$profile" ]; then
+      echo "A configured profile already exists: $profile" >&2
+      echo "Rerun with --upgrade to migrate an existing installation." >&2
+      exit 1
+    fi
+  done < <(codexpm_account_ids)
+
+  [ -f "$CODEX_ORIGINAL_HOME/auth.json" ] || {
+    echo "Original auth.json is missing: $CODEX_ORIGINAL_HOME/auth.json" >&2
+    echo "Log into Codex once before installing." >&2
+    exit 1
+  }
 fi
 
 if pgrep -af -- "$CODEX_BIN" >/dev/null 2>&1; then
