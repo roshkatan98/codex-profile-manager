@@ -9,3 +9,9 @@
 - Added per-user locking, backup free-space checks, migration, diagnostics, and uninstall support.
 - Preserved compatibility wrappers for `codex_smart`, `codex_switch`, and `codex_add_account`.
 - Added ShellCheck and integration-test CI.
+- Added strict validation for absolute paths, duplicate profile ids, and duplicate profile directories.
+- Made custom configuration paths persist across install, migration, and profile additions.
+- Prevented backup directories inside the original Codex home.
+- Added lock-contention handling with a dedicated temporary-failure exit code.
+- Expanded `doctor` to validate link targets, permissions, auth isolation, and duplicate auth files.
+- Added edge-case regression tests and a CI guard against tracked credentials or Codex runtime state.
