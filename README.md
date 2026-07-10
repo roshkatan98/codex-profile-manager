@@ -1,253 +1,238 @@
-# codex2keys
+# codex-profile-manager
 
-A practical setup for using **multiple Codex CLI authentication profiles** on the same machine while keeping the same Codex context, sessions, history, configuration, and project workflow.
+An unofficial profile manager for Codex CLI.
 
-This repository is intentionally generic. It does not depend on one specific VPS, user, repository, or project. Fill in the variables in the configuration section and run the installer.
+Use multiple legitimate Codex authentication profiles on one machine while sharing the same sessions, history, configuration, and project context.
 
-> This project is for managing legitimate Codex authentication profiles on one machine. It is not a recommendation to bypass service limits or terms. The safest workflow is manual switching, or switching after explicit user confirmation.
+> This project is not affiliated with or endorsed by OpenAI. It does not modify the Codex binary and is not intended to bypass service limits or terms.
 
-## What this solves
+## Why this exists
 
-Codex CLI keeps local state under a Codex home directory, usually:
+Codex stores local state under a Codex home directory, usually `~/.codex`. If every account uses a completely separate home, sessions and context become fragmented. If every account shares the same home, authentication collides.
 
-```bash
-~/.codex
-```
-
-That directory normally contains things like:
+`codex-profile-manager` keeps authentication separate and shares only an explicit allowlist of state:
 
 ```text
-auth.json
-config.toml
-sessions/
-session_index.jsonl
-history.jsonl
-attachments/
-memories/
-cache/
+~/.codex                  original Codex home, left untouched
+~/.codex-1/auth.json      authentication for account 1
+~/.codex-2/auth.json      authentication for account 2
+~/.codex-3/auth.json      authentication for account 3
+~/.codex-*/sessions       symlink to shared sessions
+~/.codex-*/config.toml    symlink to shared configuration
 ```
 
-If you create completely separate Codex homes, each account gets its own sessions and context. That is usually not what you want.
+Unknown future Codex files are not shared automatically.
 
-The better setup is:
+## Features
 
-```text
-~/.codex                    # original Codex home, remains untouched
-~/.codex-1/auth.json        # auth for account 1
-~/.codex-2/auth.json        # auth for account 2
-~/.codex-3/auth.json        # auth for account 3, optional
-~/.codex-N/auth.json        # auth for account N, optional
-~/.codex-*/config.toml      # symlink to ~/.codex/config.toml
-~/.codex-*/sessions         # symlink to ~/.codex/sessions
-~/.codex-*/history.jsonl    # symlink to ~/.codex/history.jsonl
-```
+- N authentication profiles, with numeric or named ids
+- Shared sessions, history, configuration, memories, and known state files
+- Manual account selection and ordered rotation
+- Optional prompt to rotate after `/quit`
+- Per-user process lock to prevent concurrent writes to shared state
+- Safe backup with free-space validation
+- Legacy migration from `codex2keys`
+- Original Codex binary remains untouched
+- Compatibility commands: `codex_smart`, `codex_switch`, and `codex_add_account`
 
-So every account has separate authentication but shared context.
+## Requirements
 
-## Important safety rule
+- Linux or another Unix-like system
+- Bash 4+
+- Codex CLI already installed and logged in once
+- `flock`, `readlink`, `du`, `df`, `awk`, and standard coreutils
 
-Do **not** run two Codex sessions at the same time against the same shared state. This repo uses a `flock` lock to prevent that.
+## Quick start
 
-## Required variables
-
-Before installing, decide these values:
-
-| Variable | Example | Meaning |
-|---|---|---|
-| `CODEX_BIN` | `$HOME/.local/bin/codex` | Path to the original Codex binary |
-| `CODEX_ORIGINAL_HOME` | `$HOME/.codex` | Current Codex home containing your existing state |
-| `CODEX_ACCOUNTS` | `1:$HOME/.codex-1 2:$HOME/.codex-2 3:$HOME/.codex-3` | Account id to profile directory map |
-| `CODEX_ACTIVE_FILE` | `$HOME/.codex-active` | Stores which account is currently active |
-| `CODEX_LOCK_FILE` | `/tmp/codex-shared-state.lock` | Lock file preventing parallel sessions |
-| `INSTALL_BIN_DIR` | `$HOME/.local/bin` | Where wrapper scripts are installed |
-
-`CODEX_ACCOUNTS` is the key setting. It supports any number of accounts:
+Clone the repository:
 
 ```bash
-CODEX_ACCOUNTS="1:$HOME/.codex-1 2:$HOME/.codex-2 3:$HOME/.codex-3"
+git clone https://github.com/roshkatan98/codex-profile-manager.git
+cd codex-profile-manager
 ```
 
-You may also use names instead of numbers:
-
-```bash
-CODEX_ACCOUNTS="main:$HOME/.codex-main work:$HOME/.codex-work backup:$HOME/.codex-backup"
-```
-
-Use paths without spaces.
-
-## Quick install for three accounts
-
-Clone the repo:
-
-```bash
-git clone https://github.com/YOUR_USER/codex2keys.git
-cd codex2keys
-```
-
-Run the installer with your real paths:
+Preview the installation:
 
 ```bash
 CODEX_BIN="$HOME/.local/bin/codex" \
 CODEX_ORIGINAL_HOME="$HOME/.codex" \
 CODEX_ACCOUNTS="1:$HOME/.codex-1 2:$HOME/.codex-2 3:$HOME/.codex-3" \
-INSTALL_BIN_DIR="$HOME/.local/bin" \
-./install.sh
+bash install.sh --dry-run
 ```
 
-The installer does **not** modify the original Codex binary.
-
-## Connect additional accounts
-
-After install, every generated profile initially contains a copy of the same `auth.json`. Keep account 1 as-is if it is already your primary account, then log each additional profile into its own account.
-
-For account 2:
+Install:
 
 ```bash
-CODEX_HOME="$HOME/.codex-2" "$HOME/.local/bin/codex" logout || true
-CODEX_HOME="$HOME/.codex-2" "$HOME/.local/bin/codex" login --device-auth
+CODEX_BIN="$HOME/.local/bin/codex" \
+CODEX_ORIGINAL_HOME="$HOME/.codex" \
+CODEX_ACCOUNTS="1:$HOME/.codex-1 2:$HOME/.codex-2 3:$HOME/.codex-3" \
+bash install.sh
 ```
 
-For account 3:
+The installer:
+
+1. validates the original Codex installation;
+2. verifies enough free space exists for a backup;
+3. copies the original authentication only into the first profile;
+4. creates every additional profile without `auth.json`;
+5. links only the approved shared-state allowlist;
+6. installs `codexpm` and compatibility wrappers without changing the Codex binary.
+
+## Login additional accounts
+
+The first profile inherits the authentication from the original Codex home. Additional profiles intentionally start logged out.
 
 ```bash
-CODEX_HOME="$HOME/.codex-3" "$HOME/.local/bin/codex" logout || true
-CODEX_HOME="$HOME/.codex-3" "$HOME/.local/bin/codex" login --device-auth
+codexpm login 2
+codexpm login 3
 ```
 
-Then verify:
+Verify:
 
 ```bash
-codex_smart status
-sha256sum "$HOME/.codex-1/auth.json" "$HOME/.codex-2/auth.json" "$HOME/.codex-3/auth.json"
+codexpm status
+sha256sum "$HOME/.codex-1/auth.json" \
+          "$HOME/.codex-2/auth.json" \
+          "$HOME/.codex-3/auth.json"
 ```
 
-The auth hashes should be different.
+The hashes should be different.
 
-## Add another account later
-
-Use:
+## Main commands
 
 ```bash
-codex_add_account 4
+codexpm list                  # list configured profiles
+codexpm status                # show Codex login status for every profile
+codexpm use 2                 # select account 2
+codexpm next                  # rotate to the next configured account
+codexpm add 4                 # add another profile without copying auth
+codexpm login 4               # login the new profile
+codexpm run                   # resume the latest session
+codexpm run new               # start a fresh Codex session
+codexpm run all               # resume across all sessions
+codexpm doctor                # validate installation and shared links
+codexpm migrate               # migrate legacy config and links
 ```
 
-or with a custom directory:
+The rotation order is the order in `CODEX_ACCOUNTS`:
 
 ```bash
-codex_add_account work "$HOME/.codex-work"
+CODEX_ACCOUNTS="main:$HOME/.codex-main work:$HOME/.codex-work backup:$HOME/.codex-backup"
 ```
 
-Then log in the new profile:
-
-```bash
-CODEX_HOME="$HOME/.codex-4" "$HOME/.local/bin/codex" logout || true
-CODEX_HOME="$HOME/.codex-4" "$HOME/.local/bin/codex" login --device-auth
-```
-
-See `docs/add-account.md` for the manual process.
-
-## Shell integration
-
-If you want typing `codex` in your shell to run the smart wrapper while leaving the original Codex binary untouched, add this to your shell rc file:
-
-```bash
-# Codex smart wrapper - shell only, original binary untouched
-codex() {
-  command codex_smart "$@"
-}
-
-codexr() {
-  command codex_smart "$@"
-}
-```
-
-A ready-to-copy version is available in:
+This rotates as:
 
 ```text
-templates/bashrc-snippet.sh
+main -> work -> backup -> main
 ```
 
-Apply it manually, then reload your shell:
+## Optional `codex` shell function
+
+To make `codex` use the profile manager while leaving the original binary untouched:
 
 ```bash
+cat templates/bashrc-snippet.sh >> ~/.bashrc
 source ~/.bashrc
 ```
 
-## Daily usage
-
-Continue the last Codex session in the current project:
+Then:
 
 ```bash
-cd /path/to/project
-codex
+codex          # resume with the active profile
+codex new      # start a new session
+codex status   # show all profile statuses
 ```
 
-Open a new Codex session:
+You can always call the original binary by its full path from `CODEX_BIN`.
 
-```bash
-cd /path/to/project
-codex new
-```
+## Configuration
 
-Rotate to the next account:
-
-```bash
-codex_switch
-```
-
-Set a specific account:
-
-```bash
-codex_switch 1
-codex_switch 2
-codex_switch 3
-```
-
-Check current state:
-
-```bash
-codex status
-codex_switch status
-```
-
-Resume across all sessions if you are not in the original project directory:
-
-```bash
-codex all
-```
-
-## Behavior after `/quit`
-
-When Codex exits, `codex_smart` asks whether to switch to the next account in the configured rotation and resume:
+The default configuration file is:
 
 ```text
-Switch to account 2 and resume? [y/N]
+~/.config/codex-profile-manager/config.env
 ```
 
-With three accounts, the rotation is:
+Override it with:
 
-```text
-1 -> 2 -> 3 -> 1
+```bash
+export CODEX_PROFILE_MANAGER_CONFIG=/custom/path/config.env
 ```
 
-Answer `y` only if you intentionally want to switch.
+See [`templates/config.env.example`](templates/config.env.example).
 
-## Why not modify the original Codex binary?
+### Shared-state allowlist
 
-Because it is cleaner and safer to leave the vendor-installed CLI untouched. This project uses wrapper scripts and optional shell functions only.
+The default allowlist is:
 
-If something goes wrong, remove the shell function and keep using the original Codex binary directly.
-
-## Files in this repo
-
-```text
-README.md
-install.sh
-scripts/codex_smart
-scripts/codex_switch
-scripts/codex_add_account
-templates/bashrc-snippet.sh
-docs/add-account.md
-docs/restore.md
-docs/troubleshooting.md
+```bash
+CODEX_SHARED_ITEMS="config.toml sessions history.jsonl session_index.jsonl memories attachments skills rules prompts archived_sessions state_*.sqlite state_*.sqlite-*"
 ```
+
+This is deliberately conservative. Add an item only after confirming it is not authentication-specific or account-specific.
+
+## Upgrading from `codex2keys`
+
+The manager detects `~/.codex2keys.env` when the new config is absent.
+
+```bash
+bash install.sh --upgrade
+codexpm migrate
+codexpm doctor
+```
+
+Migration preserves every `auth.json`, writes the new config path, removes only obsolete symlinks that point into the original Codex home, and recreates the approved shared links.
+
+See [`docs/migration.md`](docs/migration.md).
+
+## Backup and disk space
+
+The installer performs a complete backup of the original Codex home. It checks free space first and stops rather than filling the disk.
+
+Choose another filesystem when needed:
+
+```bash
+CODEX_BACKUP_DIR="/mnt/large-volume/codex-backups" bash install.sh --upgrade
+```
+
+Skip the built-in backup only after creating your own:
+
+```bash
+bash install.sh --skip-backup
+```
+
+## Uninstall
+
+Remove installed commands while preserving profiles and configuration:
+
+```bash
+bash uninstall.sh
+```
+
+Purge manager profiles and configuration as well:
+
+```bash
+bash uninstall.sh --purge
+```
+
+The original `~/.codex` directory is never removed.
+
+## Security
+
+Never commit:
+
+- `auth.json`
+- access or refresh tokens
+- private Codex configuration
+- session exports containing sensitive data
+- real `.codex-*` profile directories
+
+Read [`SECURITY.md`](SECURITY.md) before publishing forks or diagnostics.
+
+## Project status
+
+The project is designed around observed Codex CLI state layouts, which may change. Run `codexpm doctor` after Codex upgrades and report compatibility issues without including secrets.
+
+## License
+
+MIT. See [`LICENSE`](LICENSE).
