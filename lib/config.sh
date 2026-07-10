@@ -17,6 +17,16 @@ codexpm_find_config() {
   fi
 }
 
+codexpm_config_write_target() {
+  if [ -n "${CODEX_PROFILE_MANAGER_CONFIG:-}" ]; then
+    printf '%s\n' "$CODEX_PROFILE_MANAGER_CONFIG"
+  elif [ "${CODEXPM_USING_LEGACY_CONFIG:-0}" = "1" ]; then
+    printf '%s\n' "$CODEXPM_DEFAULT_CONFIG"
+  else
+    printf '%s\n' "${CODEXPM_CONFIG_FILE:-$CODEXPM_DEFAULT_CONFIG}"
+  fi
+}
+
 codexpm_load_config() {
   CODEXPM_CONFIG_FILE="$(codexpm_find_config)"
   CODEXPM_USING_LEGACY_CONFIG=0
@@ -56,14 +66,46 @@ codexpm_validate_id() {
 }
 
 codexpm_validate_config() {
-  local seen=" " entry id path
+  local seen_ids=" " seen_paths=" " entry id path
+  local -a entries
 
   [ -n "$CODEX_ACCOUNTS" ] || {
     echo "CODEX_ACCOUNTS is empty." >&2
     return 1
   }
 
-  for entry in $CODEX_ACCOUNTS; do
+  case "$CODEX_BIN" in
+    /*) ;;
+    *) echo "CODEX_BIN must be an absolute path: $CODEX_BIN" >&2; return 1 ;;
+  esac
+
+  case "$CODEX_ORIGINAL_HOME" in
+    /*) ;;
+    *) echo "CODEX_ORIGINAL_HOME must be an absolute path: $CODEX_ORIGINAL_HOME" >&2; return 1 ;;
+  esac
+
+  case "$CODEX_ACTIVE_FILE" in
+    /*) ;;
+    *) echo "CODEX_ACTIVE_FILE must be an absolute path: $CODEX_ACTIVE_FILE" >&2; return 1 ;;
+  esac
+
+  case "$CODEX_LOCK_FILE" in
+    /*) ;;
+    *) echo "CODEX_LOCK_FILE must be an absolute path: $CODEX_LOCK_FILE" >&2; return 1 ;;
+  esac
+
+  case "$CODEX_BACKUP_DIR" in
+    /*) ;;
+    *) echo "CODEX_BACKUP_DIR must be an absolute path: $CODEX_BACKUP_DIR" >&2; return 1 ;;
+  esac
+
+  case "$CODEX_PROMPT_AFTER_EXIT" in
+    0|1) ;;
+    *) echo "CODEX_PROMPT_AFTER_EXIT must be 0 or 1." >&2; return 1 ;;
+  esac
+
+  read -r -a entries <<< "$CODEX_ACCOUNTS"
+  for entry in "${entries[@]}"; do
     case "$entry" in
       *:*) ;;
       *) echo "Invalid CODEX_ACCOUNTS entry: $entry" >&2; return 1 ;;
@@ -77,26 +119,43 @@ codexpm_validate_config() {
       return 1
     }
 
-    [ -n "$path" ] || {
-      echo "Missing profile path for account: $id" >&2
-      return 1
-    }
+    case "$path" in
+      /*) ;;
+      '') echo "Missing profile path for account: $id" >&2; return 1 ;;
+      *) echo "Profile paths must be absolute: $path" >&2; return 1 ;;
+    esac
 
     case "$path" in
       *' '*) echo "Profile paths cannot contain spaces: $path" >&2; return 1 ;;
     esac
 
-    case "$seen" in
+    if [ "$path" = "$CODEX_ORIGINAL_HOME" ]; then
+      echo "A profile cannot be the original Codex home: $path" >&2
+      return 1
+    fi
+
+    case "$path/" in
+      "$CODEX_ORIGINAL_HOME"/*)
+        echo "Profile directories cannot be inside CODEX_ORIGINAL_HOME: $path" >&2
+        return 1
+        ;;
+    esac
+
+    case "$seen_ids" in
       *" $id "*) echo "Duplicate account id: $id" >&2; return 1 ;;
     esac
-    seen="$seen$id "
+    case "$seen_paths" in
+      *" $path "*) echo "Duplicate profile path: $path" >&2; return 1 ;;
+    esac
+    seen_ids="$seen_ids$id "
+    seen_paths="$seen_paths$path "
   done
 
   return 0
 }
 
 codexpm_write_config() {
-  local target="${1:-$CODEXPM_DEFAULT_CONFIG}"
+  local target="${1:-$(codexpm_config_write_target)}"
   local parent
   parent="$(dirname "$target")"
   mkdir -p "$parent"
@@ -114,4 +173,5 @@ CODEX_SHARED_ITEMS="$CODEX_SHARED_ITEMS"
 EOF_CONFIG
   chmod 600 "$target"
   CODEXPM_CONFIG_FILE="$target"
+  CODEXPM_USING_LEGACY_CONFIG=0
 }
