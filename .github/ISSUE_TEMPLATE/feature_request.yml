@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest an improvement for codex-profile-manager
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user problem first, then the proposed change. Please do not include authentication files, tokens, device codes, or private session content.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow or limitation are you trying to improve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: principles
+    attributes:
+      label: Project principles
+      options:
+        - label: The proposal does not require modifying the original Codex binary.
+          required: true
+        - label: The proposal keeps authentication isolated between profiles.
+          required: true
