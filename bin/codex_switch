@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:-next}" in
+  next|toggle|"") exec codexpm next ;;
+  status|list) exec codexpm list ;;
+  *) exec codexpm use "$1" ;;
+esac
