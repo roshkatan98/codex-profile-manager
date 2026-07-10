@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:-}" in
+  status|list|doctor|migrate|config-path|version|--version|-V)
+    exec codexpm "$@"
+    ;;
+  switch)
+    shift || true
+    if [ "$#" -eq 0 ]; then
+      exec codexpm next
+    fi
+    exec codexpm use "$1"
+    ;;
+  *)
+    exec codexpm run "$@"
+    ;;
+esac
