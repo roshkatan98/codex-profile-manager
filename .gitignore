@@ -1,11 +1,28 @@
-# Local runtime files
+# Authentication and secrets
+**/auth.json
+.env
+.env.*
+!.env.example
+*.token
+*.secret
+
+# Real Codex state and profiles
+.codex/
+.codex-*/
+**/.codex/
+**/.codex-*/
 .codex2keys.env
 .codex-active
+config.env
 
-# OS/editor noise
+# Backups and logs
+*.backup.codex2keys.*
+backups/
+*.log
+
+# OS and editors
 .DS_Store
 *.swp
 *.swo
-
-# Logs
-*.log
+.idea/
+.vscode/
