@@ -2,14 +2,18 @@
 
 codexpm_account_ids() {
   local entry
-  for entry in $CODEX_ACCOUNTS; do
+  local -a entries
+  read -r -a entries <<< "$CODEX_ACCOUNTS"
+  for entry in "${entries[@]}"; do
     printf '%s\n' "${entry%%:*}"
   done
 }
 
 codexpm_account_path() {
   local wanted="$1" entry id
-  for entry in $CODEX_ACCOUNTS; do
+  local -a entries
+  read -r -a entries <<< "$CODEX_ACCOUNTS"
+  for entry in "${entries[@]}"; do
     id="${entry%%:*}"
     if [ "$id" = "$wanted" ]; then
       printf '%s\n' "${entry#*:}"
@@ -64,13 +68,16 @@ codexpm_next_account() {
 }
 
 codexpm_shared_candidates() {
-  local spec candidate
-  for spec in $CODEX_SHARED_ITEMS; do
-    for candidate in "$CODEX_ORIGINAL_HOME"/$spec; do
+  local spec candidate pattern
+  local -a specs
+  read -r -a specs <<< "$CODEX_SHARED_ITEMS"
+  for spec in "${specs[@]}"; do
+    pattern="$CODEX_ORIGINAL_HOME/$spec"
+    while IFS= read -r candidate; do
       if [ -e "$candidate" ] || [ -L "$candidate" ]; then
         printf '%s\n' "$candidate"
       fi
-    done
+    done < <(compgen -G "$pattern" || true)
   done
 }
 
@@ -112,6 +119,7 @@ codexpm_link_shared_state() {
 
 codexpm_create_profile() {
   local id="$1" profile="$2" copy_auth="${3:-0}"
+  local created=0
 
   codexpm_validate_id "$id" || {
     echo "Invalid account id: $id" >&2
@@ -124,29 +132,46 @@ codexpm_create_profile() {
   }
 
   mkdir -p "$profile"
+  created=1
   chmod 700 "$profile"
 
   if [ "$copy_auth" = "1" ]; then
     [ -f "$CODEX_ORIGINAL_HOME/auth.json" ] || {
       echo "Missing original auth.json: $CODEX_ORIGINAL_HOME/auth.json" >&2
+      [ "$created" = "0" ] || rm -rf "$profile"
       return 1
     }
-    cp -a "$CODEX_ORIGINAL_HOME/auth.json" "$profile/auth.json"
+    cp -pL "$CODEX_ORIGINAL_HOME/auth.json" "$profile/auth.json"
     chmod 600 "$profile/auth.json"
   fi
 
-  codexpm_link_shared_state "$profile"
+  if ! codexpm_link_shared_state "$profile"; then
+    [ "$created" = "0" ] || rm -rf "$profile"
+    return 1
+  fi
 }
 
 codexpm_add_account_to_config() {
-  local id="$1" profile="$2"
+  local id="$1" profile="$2" old_accounts target
   codexpm_account_exists "$id" && {
     echo "Account already configured: $id" >&2
     return 1
   }
+
+  old_accounts="$CODEX_ACCOUNTS"
   CODEX_ACCOUNTS="$CODEX_ACCOUNTS $id:$profile"
   CODEX_ACCOUNTS="${CODEX_ACCOUNTS# }"
-  codexpm_write_config "$CODEXPM_DEFAULT_CONFIG"
+
+  if ! codexpm_validate_config; then
+    CODEX_ACCOUNTS="$old_accounts"
+    return 1
+  fi
+
+  target="$(codexpm_config_write_target)"
+  if ! codexpm_write_config "$target"; then
+    CODEX_ACCOUNTS="$old_accounts"
+    return 1
+  fi
 }
 
 codexpm_migrate_profile_links() {
