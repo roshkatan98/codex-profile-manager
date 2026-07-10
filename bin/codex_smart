@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CODEXPM="$SCRIPT_DIR/codexpm"
+
 case "${1:-}" in
-  status|list|doctor|migrate|config-path|version|--version|-V)
-    exec codexpm "$@"
+  status|list|doctor|migrate|config-path|version|--version|-V|next|use|add|login|logout)
+    exec "$CODEXPM" "$@"
     ;;
   switch)
     shift || true
     if [ "$#" -eq 0 ]; then
-      exec codexpm next
+      exec "$CODEXPM" next
     fi
-    exec codexpm use "$1"
+    exec "$CODEXPM" use "$1"
     ;;
   *)
-    exec codexpm run "$@"
+    exec "$CODEXPM" run "$@"
     ;;
 esac
