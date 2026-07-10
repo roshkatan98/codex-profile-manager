@@ -1,6 +1,5 @@
-
-# Codex smart wrapper - shell only, original binary untouched
-# Requires codex_smart and codex_switch to be installed in PATH.
+# >>> codex-profile-manager >>>
+# Optional shell integration. The original Codex binary remains untouched.
 codex() {
   command codex_smart "$@"
 }
@@ -8,7 +7,4 @@ codex() {
 codexr() {
   command codex_smart "$@"
 }
-
-# Optional shorter aliases. Remove these if you do not want them.
-alias codex_status='codex_smart status'
-alias codex_toggle='codex_switch'
+# <<< codex-profile-manager <<<
