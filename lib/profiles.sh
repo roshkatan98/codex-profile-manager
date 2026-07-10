@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+
+codexpm_account_ids() {
+  local entry
+  for entry in $CODEX_ACCOUNTS; do
+    printf '%s\n' "${entry%%:*}"
+  done
+}
+
+codexpm_account_path() {
+  local wanted="$1" entry id
+  for entry in $CODEX_ACCOUNTS; do
+    id="${entry%%:*}"
+    if [ "$id" = "$wanted" ]; then
+      printf '%s\n' "${entry#*:}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+codexpm_first_account() {
+  codexpm_account_ids | head -n 1
+}
+
+codexpm_account_exists() {
+  codexpm_account_path "$1" >/dev/null 2>&1
+}
+
+codexpm_read_active() {
+  local active
+  active="$(cat "$CODEX_ACTIVE_FILE" 2>/dev/null || true)"
+  if ! codexpm_account_exists "$active"; then
+    active="$(codexpm_first_account)"
+  fi
+  printf '%s\n' "$active"
+}
+
+codexpm_set_active() {
+  local id="$1"
+  codexpm_account_exists "$id" || {
+    echo "Unknown account: $id" >&2
+    echo "Known accounts: $(codexpm_account_ids | xargs)" >&2
+    return 1
+  }
+
+  mkdir -p "$(dirname "$CODEX_ACTIVE_FILE")"
+  printf '%s\n' "$id" > "$CODEX_ACTIVE_FILE"
+  chmod 600 "$CODEX_ACTIVE_FILE"
+}
+
+codexpm_next_account() {
+  local active="$1" first="" previous="" id
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    [ -n "$first" ] || first="$id"
+    if [ "$previous" = "$active" ]; then
+      printf '%s\n' "$id"
+      return 0
+    fi
+    previous="$id"
+  done < <(codexpm_account_ids)
+  printf '%s\n' "$first"
+}
+
+codexpm_shared_candidates() {
+  local spec candidate
+  for spec in $CODEX_SHARED_ITEMS; do
+    for candidate in "$CODEX_ORIGINAL_HOME"/$spec; do
+      if [ -e "$candidate" ] || [ -L "$candidate" ]; then
+        printf '%s\n' "$candidate"
+      fi
+    done
+  done
+}
+
+codexpm_is_shared_name() {
+  local wanted="$1" candidate
+  while IFS= read -r candidate; do
+    [ "$(basename "$candidate")" = "$wanted" ] && return 0
+  done < <(codexpm_shared_candidates)
+  return 1
+}
+
+codexpm_link_shared_state() {
+  local profile="$1" candidate name destination
+  mkdir -p "$profile"
+
+  while IFS= read -r candidate; do
+    name="$(basename "$candidate")"
+    [ "$name" != "auth.json" ] || continue
+    destination="$profile/$name"
+
+    if [ -L "$destination" ]; then
+      if [ "$(readlink -f "$destination")" = "$(readlink -f "$candidate")" ]; then
+        continue
+      fi
+      echo "Refusing to replace unexpected symlink: $destination" >&2
+      return 1
+    fi
+
+    if [ -e "$destination" ]; then
+      echo "Refusing to replace existing profile item: $destination" >&2
+      return 1
+    fi
+
+    ln -s "$candidate" "$destination"
+  done < <(codexpm_shared_candidates)
+
+  chmod 700 "$profile"
+}
+
+codexpm_create_profile() {
+  local id="$1" profile="$2" copy_auth="${3:-0}"
+
+  codexpm_validate_id "$id" || {
+    echo "Invalid account id: $id" >&2
+    return 1
+  }
+
+  [ ! -e "$profile" ] || {
+    echo "Profile already exists: $profile" >&2
+    return 1
+  }
+
+  mkdir -p "$profile"
+  chmod 700 "$profile"
+
+  if [ "$copy_auth" = "1" ]; then
+    [ -f "$CODEX_ORIGINAL_HOME/auth.json" ] || {
+      echo "Missing original auth.json: $CODEX_ORIGINAL_HOME/auth.json" >&2
+      return 1
+    }
+    cp -a "$CODEX_ORIGINAL_HOME/auth.json" "$profile/auth.json"
+    chmod 600 "$profile/auth.json"
+  fi
+
+  codexpm_link_shared_state "$profile"
+}
+
+codexpm_add_account_to_config() {
+  local id="$1" profile="$2"
+  codexpm_account_exists "$id" && {
+    echo "Account already configured: $id" >&2
+    return 1
+  }
+  CODEX_ACCOUNTS="$CODEX_ACCOUNTS $id:$profile"
+  CODEX_ACCOUNTS="${CODEX_ACCOUNTS# }"
+  codexpm_write_config "$CODEXPM_DEFAULT_CONFIG"
+}
+
+codexpm_migrate_profile_links() {
+  local profile="$1" item name target
+  [ -d "$profile" ] || return 0
+
+  for item in "$profile"/* "$profile"/.[!.]*; do
+    [ -e "$item" ] || [ -L "$item" ] || continue
+    name="$(basename "$item")"
+    [ "$name" != "auth.json" ] || continue
+
+    if [ -L "$item" ] && ! codexpm_is_shared_name "$name"; then
+      target="$(readlink -f "$item" 2>/dev/null || true)"
+      case "$target" in
+        "$CODEX_ORIGINAL_HOME"/*) rm -f "$item" ;;
+        *) : ;;
+      esac
+    fi
+  done
+
+  codexpm_link_shared_state "$profile"
+}
