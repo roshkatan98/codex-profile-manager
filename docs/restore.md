@@ -1,89 +1,28 @@
-# Restore and uninstall
+# Restore
 
-This guide explains how to undo a codex2keys setup without touching your original Codex binary.
-
-## What the installer changes
-
-The installer creates:
+The installer stores backups under `CODEX_BACKUP_DIR`, by default:
 
 ```text
-~/.codex-1
-~/.codex-2
-~/.codex-active
-~/.codex2keys.env
-~/.local/bin/codex_smart
-~/.local/bin/codex_switch
+~/.local/share/codex-profile-manager/backups
 ```
 
-It also creates a backup of the original Codex home:
-
-```text
-~/.codex.backup.codex2keys.TIMESTAMP
-```
-
-If `INSTALL_SHELL_FUNCTIONS=1` was used, it appends shell functions to `~/.bashrc`.
-
-## Remove the dual-profile setup
-
-First make sure Codex is not running:
-
-```bash
-pgrep -af codex || true
-```
-
-Then remove the generated profile directories and helper files:
-
-```bash
-rm -rf "$HOME/.codex-1" "$HOME/.codex-2"
-rm -f "$HOME/.codex-active" "$HOME/.codex2keys.env"
-rm -f "$HOME/.local/bin/codex_smart" "$HOME/.local/bin/codex_switch"
-```
-
-This does not remove your original:
-
-```text
-~/.codex
-```
-
-## Remove shell functions from `.bashrc`
-
-Open your shell rc file:
-
-```bash
-nano ~/.bashrc
-```
-
-Remove the block that starts with:
-
-```bash
-# Codex smart wrapper - shell only, original binary untouched
-```
-
-Then reload:
-
-```bash
-source ~/.bashrc
-```
-
-## Restore original Codex home from backup
-
-Only do this if the original `~/.codex` was damaged or you explicitly want to revert to the backup state.
+To restore an original Codex home backup:
 
 ```bash
 mv "$HOME/.codex" "$HOME/.codex.before-restore.$(date +%Y%m%d_%H%M%S)"
-cp -a "$HOME/.codex.backup.codex2keys.TIMESTAMP" "$HOME/.codex"
+cp -a "/path/to/codex-home.TIMESTAMP" "$HOME/.codex"
 ```
 
-Replace `TIMESTAMP` with the actual backup suffix.
+The manager never modifies the original Codex binary.
 
-## Verify original Codex works
+To remove only the manager commands:
 
 ```bash
-CODEX_HOME="$HOME/.codex" "$HOME/.local/bin/codex" login status
+bash uninstall.sh
 ```
 
-If you used the optional shell function named `codex`, either remove it from `.bashrc` or call the original binary by path:
+To remove manager profiles and configuration too:
 
 ```bash
-"$HOME/.local/bin/codex" --version
+bash uninstall.sh --purge
 ```
