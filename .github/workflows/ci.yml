@@ -12,12 +12,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install ShellCheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Ensure ShellCheck is available
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y shellcheck >/dev/null
+          fi
+          shellcheck --version
       - name: Bash syntax
         run: bash -n install.sh uninstall.sh bin/* lib/*.sh tests/*.sh
       - name: ShellCheck
-        run: shellcheck -x -e SC1090,SC1091,SC2034,SC2154 install.sh uninstall.sh bin/* lib/*.sh tests/*.sh
+        run: |
+          shellcheck -x -e SC1090,SC1091,SC2034,SC2154 \
+            install.sh uninstall.sh bin/* lib/*.sh tests/*.sh
       - name: Reject tracked credentials and runtime state
         run: |
           if git ls-files | grep -E '(^|/)auth\.json$|(^|/)\.codex-[^/]+/|(^|/)\.codex/'; then
