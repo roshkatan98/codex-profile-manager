@@ -19,6 +19,8 @@ LIB_DIR="${CODEXPM_LIB_DIR:-$BIN_DIR/../lib}"
 source "$LIB_DIR/config.sh"
 # shellcheck source=../lib/profiles.sh
 source "$LIB_DIR/profiles.sh"
+# shellcheck source=../lib/update.sh
+source "$LIB_DIR/update.sh"
 
 codexpm_load_config
 codexpm_validate_config
@@ -39,6 +41,7 @@ Usage:
   codexpm run [new|all|resume|-- <codex args...>]
   codexpm doctor
   codexpm migrate
+  codexpm update [--check] [--yes]
   codexpm uninstall [--purge] [--yes]
   codexpm config-path
   codexpm version
@@ -52,6 +55,7 @@ Examples:
   codexpm remove backup --delete-files
   codexpm run
   codexpm run new
+  codexpm update
   codexpm uninstall --purge
 EOF_USAGE
 }
@@ -437,6 +441,7 @@ case "${1:-help}" in
   run) shift; run_command "$@" ;;
   doctor) doctor ;;
   migrate) migrate ;;
+  update) shift; codexpm_update_command "$BIN_DIR" "$@" ;;
   uninstall) shift; uninstall_manager "$@" ;;
   config-path) echo "$CODEXPM_CONFIG_FILE" ;;
   *) echo "Unknown command: $1" >&2; usage >&2; exit 1 ;;
