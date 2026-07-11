@@ -94,9 +94,10 @@ codexpm_update_download_archive() {
   fi
 }
 
-codexpm_update_command() {
+codexpm_update_command() (
   local bin_dir="$1" check_only=0 yes=0 latest comparison answer
   local temp archive source_dir install_data_dir install_bin_dir command_path
+  local -a source_dirs
   shift
 
   while [ "$#" -gt 0 ]; do
@@ -155,24 +156,30 @@ codexpm_update_command() {
   install_data_dir="${INSTALL_DATA_DIR:-$(cd "$bin_dir/.." && pwd)}"
   temp="$(mktemp -d)"
   archive="$temp/release.tar.gz"
-  trap 'rm -rf "$temp"' RETURN
+  trap 'rm -rf "$temp"' EXIT
 
   codexpm_update_download_archive "$latest" "$archive"
 
-  if tar -tzf "$archive" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+  if tar -tzf "$archive" | grep -E '(^/|(^|/)\.\.(/|$))' >/dev/null; then
     echo "Refusing an archive with unsafe paths." >&2
     return 1
   fi
 
   tar -xzf "$archive" -C "$temp"
-  source_dir="$(find "$temp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+  mapfile -t source_dirs < <(find "$temp" -mindepth 1 -maxdepth 1 -type d)
+  if [ "${#source_dirs[@]}" -ne 1 ]; then
+    echo "The downloaded release archive has an unexpected layout." >&2
+    return 1
+  fi
+  source_dir="${source_dirs[0]}"
 
-  [ -f "$source_dir/install.sh" ] \
-    && [ -f "$source_dir/bin/codexpm" ] \
-    && [ -f "$source_dir/lib/config.sh" ] || {
-      echo "The downloaded release archive is incomplete." >&2
-      return 1
-    }
+  if [ ! -f "$source_dir/install.sh" ] \
+    || [ ! -f "$source_dir/bin/codexpm" ] \
+    || [ ! -f "$source_dir/lib/config.sh" ] \
+    || [ ! -f "$source_dir/lib/update.sh" ]; then
+    echo "The downloaded release archive is incomplete." >&2
+    return 1
+  fi
 
   echo "Installing ${latest#v}..."
   CODEX_PROFILE_MANAGER_CONFIG="$CODEXPM_CONFIG_FILE" \
@@ -182,4 +189,4 @@ codexpm_update_command() {
 
   "$install_data_dir/bin/codexpm" doctor
   echo "Update complete: $CODEXPM_VERSION -> ${latest#v}"
-}
+)
