@@ -1,12 +1,20 @@
 # Frequently asked questions
 
-## Can I configure more than three accounts?
+## How many profiles can I configure?
 
-Yes. `CODEX_ACCOUNTS` accepts any number of numeric or named profile ids, and rotation follows their configured order.
+The setup wizard asks how many profiles you want. You can configure one or more profiles and add more later.
 
-```bash
-CODEX_ACCOUNTS="personal:$HOME/.codex-personal work:$HOME/.codex-work backup:$HOME/.codex-backup"
+## Can I name the profiles?
+
+Yes. During setup you can use names such as `personal`, `work`, or `backup`. Press Enter to keep the numeric defaults.
+
+```text
+1
+2
+3
 ```
+
+Profile names may contain letters, numbers, dots, underscores, and hyphens.
 
 ## Does this bypass Codex limits?
 
@@ -26,8 +34,6 @@ A future Codex version may add account-specific or sensitive files. Keeping unkn
 
 ## Can I start a new session instead of resuming the last one?
 
-Yes.
-
 ```bash
 codexpm run new
 ```
@@ -40,8 +46,6 @@ codex new
 
 ## Can I switch directly to a specific profile?
 
-Yes.
-
 ```bash
 codexpm use work
 ```
@@ -51,6 +55,22 @@ Rotate to the next configured profile with:
 ```bash
 codexpm next
 ```
+
+## Can I remove a profile from the rotation?
+
+Yes. Preserve its local files with:
+
+```bash
+codexpm remove work
+```
+
+Remove it and delete its verified local profile directory with:
+
+```bash
+codexpm remove work --delete-files
+```
+
+Shared sessions and history are not deleted. The last configured profile cannot be removed accidentally.
 
 ## Can two managed Codex sessions run simultaneously?
 
@@ -62,11 +82,11 @@ That is not this project's primary purpose. Use separate `CODEX_HOME` directorie
 
 ## Is Windows supported?
 
-Native Windows is not currently supported. The scripts require Bash and Unix utilities such as `flock`. WSL may work but should be treated as unverified unless covered by CI or a documented test.
+Native Windows is not currently supported. The scripts require Bash and Unix utilities such as `flock`. WSL may work but is not currently covered by CI.
 
 ## Does macOS work?
 
-The project targets Unix-like systems, but the default implementation depends on `flock`, which is not included with a standard macOS installation. Linux is the currently supported and tested platform.
+The default implementation depends on `flock`, which is not included with a standard macOS installation. Linux is the currently supported and tested platform.
 
 ## How do I add another profile later?
 
@@ -76,19 +96,30 @@ codexpm login 4
 codexpm doctor
 ```
 
-## Can I safely uninstall it?
-
-Yes. A normal uninstall removes manager commands and optional shell integration while preserving profiles, configuration, backups, and the original Codex home.
+A named profile works the same way:
 
 ```bash
-bash uninstall.sh
+codexpm add work
+codexpm login work
 ```
 
-Use `--purge` only when you intentionally want the managed profile directories and configuration removed as well.
+## Can I safely uninstall it?
+
+Yes. Remove the manager commands while preserving profiles and configuration:
+
+```bash
+codexpm uninstall
+```
+
+Return to the original Codex setup and remove verified managed profiles:
+
+```bash
+codexpm uninstall --purge
+```
+
+The original Codex binary, original home, and backups are not removed.
 
 ## What should I do after upgrading Codex CLI?
-
-Run:
 
 ```bash
 codexpm doctor
