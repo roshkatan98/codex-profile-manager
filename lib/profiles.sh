@@ -158,10 +158,10 @@ codexpm_create_profile() {
     return 1
   }
 
-  [ ! -e "$profile" ] && [ ! -L "$profile" ] || {
+  if [ -e "$profile" ] || [ -L "$profile" ]; then
     echo "Profile already exists: $profile" >&2
     return 1
-  }
+  fi
 
   mkdir -p "$profile"
   created=1
