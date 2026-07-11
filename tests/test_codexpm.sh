@@ -22,7 +22,7 @@ case "${1:-}" in
     case "${2:-}" in
       status)
         if [ -f "$CODEX_HOME/auth.json" ]; then
-          echo "Logged in using test account"
+          echo "Logged in using test profile"
           exit 0
         fi
         echo "Not logged in"
@@ -35,6 +35,10 @@ case "${1:-}" in
         exit 0
         ;;
     esac
+    ;;
+  logout)
+    rm -f "$CODEX_HOME/auth.json"
+    exit 0
     ;;
   --version)
     echo "codex-cli test"
@@ -67,12 +71,14 @@ bash "$ROOT_DIR/install.sh" --yes --skip-backup
 
 [ -f "$HOME/.codex-1/auth.json" ]
 [ ! -e "$HOME/.codex-2/auth.json" ]
+[ -f "$HOME/.codex-1/.codex-profile-manager-profile" ]
+[ -f "$HOME/.codex-2/.codex-profile-manager-profile" ]
 [ -L "$HOME/.codex-1/sessions" ]
 [ -L "$HOME/.codex-2/config.toml" ]
 [ ! -e "$HOME/.codex-1/future-account-cache" ]
 [ ! -e "$HOME/.codex-2/future-account-cache" ]
 
-codexpm use 2 | grep -q 'account is now: 2'
+codexpm use 2 | grep -q 'profile is now: 2'
 [ "$(cat "$CODEX_ACTIVE_FILE")" = "2" ]
 codexpm next | grep -q '2 -> 1'
 [ "$(cat "$CODEX_ACTIVE_FILE")" = "1" ]
@@ -80,6 +86,7 @@ codexpm next | grep -q '2 -> 1'
 codexpm add 3
 [ -d "$HOME/.codex-3" ]
 [ ! -e "$HOME/.codex-3/auth.json" ]
+[ -f "$HOME/.codex-3/.codex-profile-manager-profile" ]
 codexpm login 3
 [ -f "$HOME/.codex-3/auth.json" ]
 
@@ -96,5 +103,12 @@ codexpm run new
 codex_smart status >/dev/null
 codex_switch 3 >/dev/null
 [ "$(cat "$CODEX_ACTIVE_FILE")" = "3" ]
+
+codexpm remove 2 >/dev/null
+[ -d "$HOME/.codex-2" ]
+if grep -q "2:$HOME/.codex-2" "$XDG_CONFIG_HOME/codex-profile-manager/config.env"; then
+  echo "Removed profile remained in configuration" >&2
+  exit 1
+fi
 
 printf 'All integration tests passed.\n'
