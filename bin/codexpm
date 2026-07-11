@@ -30,24 +30,29 @@ codex-profile-manager (codexpm)
 Usage:
   codexpm list
   codexpm status
-  codexpm use <account>
+  codexpm use <profile>
   codexpm next
-  codexpm add <account> [profile_dir]
-  codexpm login <account>
-  codexpm logout <account>
+  codexpm add <profile> [profile_dir]
+  codexpm remove <profile> [--delete-files] [--yes]
+  codexpm login <profile>
+  codexpm logout <profile>
   codexpm run [new|all|resume|-- <codex args...>]
   codexpm doctor
   codexpm migrate
+  codexpm uninstall [--purge] [--yes]
   codexpm config-path
   codexpm version
 
 Examples:
-  codexpm use 2
+  codexpm use work
   codexpm next
-  codexpm add 3
-  codexpm login 3
+  codexpm add backup
+  codexpm login backup
+  codexpm remove backup
+  codexpm remove backup --delete-files
   codexpm run
   codexpm run new
+  codexpm uninstall --purge
 EOF_USAGE
 }
 
@@ -61,14 +66,14 @@ require_codex() {
 show_list() {
   local active id path marker auth
   active="$(codexpm_read_active)"
-  printf 'Active account: %s\n\n' "$active"
+  printf 'Active profile: %s\n\n' "$active"
   while IFS= read -r id; do
     path="$(codexpm_account_path "$id")"
     marker=" "
     [ "$id" != "$active" ] || marker="*"
     auth="not logged in"
     [ ! -f "$path/auth.json" ] || auth="auth present"
-    printf '%s %-12s %s (%s)\n' "$marker" "$id" "$path" "$auth"
+    printf '%s %-16s %s (%s)\n' "$marker" "$id" "$path" "$auth"
   done < <(codexpm_account_ids)
 }
 
@@ -76,12 +81,12 @@ show_status() {
   local active id path marker
   require_codex
   active="$(codexpm_read_active)"
-  printf 'Active account: %s\n\n' "$active"
+  printf 'Active profile: %s\n\n' "$active"
   while IFS= read -r id; do
     path="$(codexpm_account_path "$id")"
     marker=""
     [ "$id" != "$active" ] || marker=" [active]"
-    printf 'Account %s%s\n' "$id" "$marker"
+    printf 'Profile %s%s\n' "$id" "$marker"
     printf 'CODEX_HOME=%s\n' "$path"
     CODEX_HOME="$path" "$CODEX_BIN" login status || true
     echo
@@ -106,7 +111,7 @@ run_codex_once() {
     return 75
   fi
 
-  echo "Using Codex account: $account"
+  echo "Using Codex profile: $account"
   set +e
   CODEX_HOME="$home" "$CODEX_BIN" "$@"
   status=$?
@@ -138,15 +143,15 @@ run_codex() {
   next="$(codexpm_next_account "$active")"
   [ "$next" != "$active" ] || return 0
   echo
-  read -r -p "Switch to account $next and resume? [y/N] " answer
+  read -r -p "Switch to profile $next and resume? [y/N] " answer
   case "$answer" in
     y|Y|yes|YES)
       codexpm_set_active "$next"
-      echo "Switched Codex account: $active -> $next"
+      echo "Switched Codex profile: $active -> $next"
       run_codex_once "$next" resume --last
       ;;
     *)
-      echo "Keeping active Codex account: $active"
+      echo "Keeping active Codex profile: $active"
       return 0
       ;;
   esac
@@ -178,26 +183,95 @@ run_command() {
 
 add_account() {
   local id="${1:-}" profile
-  [ -n "$id" ] || { echo "Usage: codexpm add <account> [profile_dir]" >&2; exit 1; }
+  [ -n "$id" ] || { echo "Usage: codexpm add <profile> [profile_dir]" >&2; exit 1; }
   profile="${2:-$HOME/.codex-$id}"
   codexpm_create_profile "$id" "$profile" 0
   if ! codexpm_add_account_to_config "$id" "$profile"; then
-    rm -rf "$profile"
+    rm -rf -- "${profile:?}"
     exit 1
   fi
   cat <<EOF_ADDED
-Added account $id at $profile.
-No authentication token was copied.
+Added profile '$id' at:
+  $profile
 
 Login with:
   codexpm login $id
 EOF_ADDED
 }
 
+remove_account() {
+  local id="${1:-}" delete_files=0 yes=0 profile active replacement confirm
+  [ -n "$id" ] || { echo "Usage: codexpm remove <profile> [--delete-files] [--yes]" >&2; exit 1; }
+  shift || true
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --delete-files) delete_files=1 ;;
+      --yes) yes=1 ;;
+      *) echo "Unknown remove option: $1" >&2; exit 1 ;;
+    esac
+    shift
+  done
+
+  codexpm_account_exists "$id" || {
+    echo "Unknown profile: $id" >&2
+    exit 1
+  }
+
+  if [ "$(codexpm_account_count)" -le 1 ]; then
+    echo "The last configured profile cannot be removed." >&2
+    echo "Use 'codexpm uninstall --purge' to remove the manager completely." >&2
+    exit 1
+  fi
+
+  profile="$(codexpm_account_path "$id")"
+  active="$(codexpm_read_active)"
+  replacement="$(codexpm_next_account "$id")"
+
+  if [ "$delete_files" = "1" ]; then
+    codexpm_profile_is_managed "$id" "$profile" || {
+      echo "Refusing to delete an unverified profile directory: $profile" >&2
+      exit 1
+    }
+
+    if [ "$yes" != "1" ]; then
+      echo "This will remove profile '$id' from rotation and permanently delete:"
+      echo "  $profile"
+      echo "Shared sessions and history in $CODEX_ORIGINAL_HOME will not be deleted."
+      echo
+      read -r -p "Type the profile name '$id' to confirm: " confirm
+      [ "$confirm" = "$id" ] || { echo "Cancelled."; exit 0; }
+    fi
+  fi
+
+  codexpm_remove_account_from_config "$id"
+
+  if [ "$active" = "$id" ]; then
+    codexpm_set_active "$replacement"
+    echo "Active profile changed: $id -> $replacement"
+  fi
+
+  if [ "$delete_files" = "1" ]; then
+    if codexpm_delete_profile "$id" "$profile"; then
+      echo "Removed profile '$id' and deleted its local files."
+    else
+      echo "Profile '$id' was removed from rotation, but its files were preserved at:" >&2
+      echo "  $profile" >&2
+      exit 1
+    fi
+  else
+    cat <<EOF_REMOVED
+Removed profile '$id' from rotation.
+Its local files were preserved at:
+  $profile
+EOF_REMOVED
+  fi
+}
+
 login_account() {
   local id="${1:-}" profile
-  [ -n "$id" ] || { echo "Usage: codexpm login <account>" >&2; exit 1; }
-  profile="$(codexpm_account_path "$id")" || { echo "Unknown account: $id" >&2; exit 1; }
+  [ -n "$id" ] || { echo "Usage: codexpm login <profile>" >&2; exit 1; }
+  profile="$(codexpm_account_path "$id")" || { echo "Unknown profile: $id" >&2; exit 1; }
   require_codex
   mkdir -p "$profile"
   chmod 700 "$profile"
@@ -206,8 +280,8 @@ login_account() {
 
 logout_account() {
   local id="${1:-}" profile
-  [ -n "$id" ] || { echo "Usage: codexpm logout <account>" >&2; exit 1; }
-  profile="$(codexpm_account_path "$id")" || { echo "Unknown account: $id" >&2; exit 1; }
+  [ -n "$id" ] || { echo "Usage: codexpm logout <profile>" >&2; exit 1; }
+  profile="$(codexpm_account_path "$id")" || { echo "Unknown profile: $id" >&2; exit 1; }
   require_codex
   CODEX_HOME="$profile" "$CODEX_BIN" logout
 }
@@ -234,6 +308,11 @@ doctor() {
     fi
 
     echo "OK: Profile $id exists: $path"
+    if ! codexpm_profile_is_managed "$id" "$path"; then
+      echo "FAIL: Profile $id is missing a valid manager marker"
+      failed=1
+    fi
+
     mode="$(stat -c '%a' "$path" 2>/dev/null || true)"
     if [ "$mode" != "700" ]; then
       echo "WARN: Profile $id permissions are $mode, expected 700"
@@ -312,17 +391,27 @@ doctor() {
 migrate() {
   local id path target
   if [ "$CODEXPM_USING_LEGACY_CONFIG" = "1" ]; then
-    echo "Migrating legacy config from $CODEXPM_LEGACY_CONFIG"
+    echo "Migrating legacy configuration."
   fi
   target="$(codexpm_config_write_target)"
   codexpm_write_config "$target"
 
   while IFS= read -r id; do
     path="$(codexpm_account_path "$id")"
-    codexpm_migrate_profile_links "$path"
+    codexpm_migrate_profile_links "$path" "$id"
   done < <(codexpm_account_ids)
 
   echo "Migration complete: $target"
+}
+
+uninstall_manager() {
+  local script="$BIN_DIR/../uninstall.sh"
+  [ -f "$script" ] || {
+    echo "Uninstall script was not found: $script" >&2
+    echo "Run uninstall.sh from the repository checkout instead." >&2
+    exit 1
+  }
+  exec bash "$script" "$@"
 }
 
 case "${1:-help}" in
@@ -331,22 +420,24 @@ case "${1:-help}" in
   list) show_list ;;
   status) show_status ;;
   use)
-    [ -n "${2:-}" ] || { echo "Usage: codexpm use <account>" >&2; exit 1; }
+    [ -n "${2:-}" ] || { echo "Usage: codexpm use <profile>" >&2; exit 1; }
     codexpm_set_active "$2"
-    echo "Active Codex account is now: $2"
+    echo "Active Codex profile is now: $2"
     ;;
   next)
     current="$(codexpm_read_active)"
     next="$(codexpm_next_account "$current")"
     codexpm_set_active "$next"
-    echo "Switched Codex account: $current -> $next"
+    echo "Switched Codex profile: $current -> $next"
     ;;
   add) shift; add_account "$@" ;;
+  remove) shift; remove_account "$@" ;;
   login) shift; login_account "$@" ;;
   logout) shift; logout_account "$@" ;;
   run) shift; run_command "$@" ;;
   doctor) doctor ;;
   migrate) migrate ;;
+  uninstall) shift; uninstall_manager "$@" ;;
   config-path) echo "$CODEXPM_CONFIG_FILE" ;;
   *) echo "Unknown command: $1" >&2; usage >&2; exit 1 ;;
 esac
