@@ -218,6 +218,7 @@ install -m 755 "$ROOT_DIR/uninstall.sh" "$INSTALL_DATA_DIR/uninstall.sh"
 install -m 644 "$ROOT_DIR/lib/config.sh" "$INSTALL_DATA_DIR/lib/config.sh"
 install -m 644 "$ROOT_DIR/lib/profiles.sh" "$INSTALL_DATA_DIR/lib/profiles.sh"
 install -m 644 "$ROOT_DIR/lib/backup.sh" "$INSTALL_DATA_DIR/lib/backup.sh"
+install -m 644 "$ROOT_DIR/lib/update.sh" "$INSTALL_DATA_DIR/lib/update.sh"
 
 for command_name in codexpm codex_smart codex_switch codex_add_account; do
   ln -sfn "$INSTALL_DATA_DIR/bin/$command_name" "$INSTALL_BIN_DIR/$command_name"
