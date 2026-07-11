@@ -104,6 +104,12 @@ setup_wizard() {
   done
 }
 
+codexpm_running_processes() {
+  local escaped_pattern
+  escaped_pattern="$(printf '%s' "$CODEX_BIN" | sed 's@[][\\.^$*+?(){}|/]@\\&@g')"
+  pgrep -af -- "${escaped_pattern}([[:space:]]|$)"
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --wizard) WIZARD=1 ;;
@@ -200,9 +206,9 @@ if [ "$UPGRADE" != "1" ]; then
   }
 fi
 
-if pgrep -af -- "$CODEX_BIN" >/dev/null 2>&1; then
+if codexpm_running_processes >/dev/null 2>&1; then
   echo "A process using the configured Codex binary appears to be running:" >&2
-  pgrep -af -- "$CODEX_BIN" >&2 || true
+  codexpm_running_processes >&2 || true
   echo "Close it before installing or upgrading." >&2
   exit 1
 fi
@@ -218,6 +224,7 @@ install -m 755 "$ROOT_DIR/uninstall.sh" "$INSTALL_DATA_DIR/uninstall.sh"
 install -m 644 "$ROOT_DIR/lib/config.sh" "$INSTALL_DATA_DIR/lib/config.sh"
 install -m 644 "$ROOT_DIR/lib/profiles.sh" "$INSTALL_DATA_DIR/lib/profiles.sh"
 install -m 644 "$ROOT_DIR/lib/backup.sh" "$INSTALL_DATA_DIR/lib/backup.sh"
+install -m 644 "$ROOT_DIR/lib/update.sh" "$INSTALL_DATA_DIR/lib/update.sh"
 
 for command_name in codexpm codex_smart codex_switch codex_add_account; do
   ln -sfn "$INSTALL_DATA_DIR/bin/$command_name" "$INSTALL_BIN_DIR/$command_name"

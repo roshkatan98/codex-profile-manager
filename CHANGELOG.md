@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.1
+
+- Added `codexpm update --check` to check for a newer stable release.
+- Added `codexpm update` to download and install the latest stable release.
+- Preserved profile configuration and authentication during updates.
+- Added archive validation and automatic post-update diagnostics.
+- Added an offline integration test for the complete update flow.
+
 ## 1.1.0
 
 - Added an interactive setup wizard for choosing the number of profiles.

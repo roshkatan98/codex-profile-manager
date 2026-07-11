@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 CODEXPM_NAME="codex-profile-manager"
-CODEXPM_VERSION="1.1.0"
+CODEXPM_VERSION="1.1.1"
 CODEXPM_PROFILE_MARKER=".codex-profile-manager-profile"
 CODEXPM_DEFAULT_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/codex-profile-manager/config.env"
 CODEXPM_LEGACY_CONFIG="$HOME/.codex2keys.env"

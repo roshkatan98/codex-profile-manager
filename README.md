@@ -57,6 +57,7 @@ flowchart TB
 - Shared sessions, history, configuration, and project context
 - Direct profile selection and ordered rotation
 - Add or remove profiles later
+- Built-in updates to the latest stable release
 - Safe uninstall that restores the original Codex setup
 - Original Codex binary remains untouched
 
@@ -66,6 +67,7 @@ flowchart TB
 - Bash 4+
 - Codex CLI already installed and logged in once
 - `flock` and standard Unix utilities
+- `curl` or `wget` for built-in updates
 
 Native Windows and standard macOS installations are not currently supported. See the [FAQ](docs/FAQ.md).
 
@@ -127,6 +129,8 @@ codexpm logout backup                # log out that profile
 codexpm run                          # resume the latest session
 codexpm run new                      # start a fresh session
 codexpm run all                      # resume across all sessions
+codexpm update --check               # check for a stable update
+codexpm update                       # install the latest stable release
 codexpm doctor                       # validate the setup
 ```
 
@@ -147,6 +151,32 @@ codexpm remove backup --delete-files
 ```
 
 Shared sessions and history remain in the original Codex home. The last configured profile cannot be removed accidentally.
+
+## Update
+
+Check for a newer stable release:
+
+```bash
+codexpm update --check
+```
+
+Install it:
+
+```bash
+codexpm update
+```
+
+The updater downloads the latest stable GitHub release, preserves the existing configuration and authentication profiles, upgrades the installed files, and runs `codexpm doctor` automatically.
+
+Users upgrading from a version that predates the built-in updater need one final manual update from a repository checkout:
+
+```bash
+git pull --ff-only
+bash install.sh --upgrade --yes
+codexpm doctor
+```
+
+Future updates can then use `codexpm update`.
 
 ## Uninstall
 
@@ -179,16 +209,6 @@ Then:
 codex          # resume with the active profile
 codex new      # start a new session
 codex status   # show profile statuses
-```
-
-## Upgrade
-
-From a repository checkout:
-
-```bash
-git pull
-bash install.sh --upgrade
-codexpm doctor
 ```
 
 ## Configuration
