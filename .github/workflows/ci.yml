@@ -40,5 +40,9 @@ jobs:
         run: |
           for test_file in tests/test_*.sh; do
             echo "Running $test_file"
-            bash "$test_file"
+            if ! output="$(bash "$test_file" 2>&1)"; then
+              printf '%s\n' "$output"
+              exit 1
+            fi
+            printf '%s\n' "$output" | tail -n 1
           done
