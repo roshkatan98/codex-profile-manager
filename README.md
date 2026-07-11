@@ -15,28 +15,28 @@ Use multiple legitimate Codex authentication profiles on one machine while shari
 
 ```console
 $ codexpm list
-Active account: personal
+Active profile: personal
 
-* personal     /home/user/.codex-personal (auth present)
-  work         /home/user/.codex-work     (auth present)
-  backup       /home/user/.codex-backup   (auth present)
+* personal         /home/user/.codex-personal (auth present)
+  work             /home/user/.codex-work (auth present)
+  backup           /home/user/.codex-backup (auth present)
 
 $ codexpm use work
-Active Codex account is now: work
+Active Codex profile is now: work
 
 $ codexpm run
-Using Codex account: work
+Using Codex profile: work
 
 # Work normally, then exit with /quit
-Switch to account backup and resume? [y/N] y
-Switched Codex account: work -> backup
+Switch to profile backup and resume? [y/N] y
+Switched Codex profile: work -> backup
 ```
 
 ## Why this exists
 
 Codex stores local state under a Codex home directory, usually `~/.codex`.
 
-Completely separate homes split your sessions and context. A single shared home mixes authentication. `codex-profile-manager` separates authentication while sharing the Codex state you actually want to keep.
+Completely separate homes split your sessions and context. A single shared home mixes authentication. `codex-profile-manager` separates authentication while sharing the Codex state you want to keep.
 
 ```mermaid
 flowchart TB
@@ -52,10 +52,12 @@ flowchart TB
 ## Features
 
 - Any number of numeric or named profiles
+- Interactive setup wizard
 - Separate authentication for every profile
 - Shared sessions, history, configuration, and project context
 - Direct profile selection and ordered rotation
-- Resume the latest session or start a fresh one
+- Add or remove profiles later
+- Safe uninstall that restores the original Codex setup
 - Original Codex binary remains untouched
 
 ## Requirements
@@ -67,77 +69,104 @@ flowchart TB
 
 Native Windows and standard macOS installations are not currently supported. See the [FAQ](docs/FAQ.md).
 
-## Quick start
+## Install
 
 ```bash
 git clone https://github.com/roshkatan98/codex-profile-manager.git
 cd codex-profile-manager
-```
-
-Preview the installation:
-
-```bash
-CODEX_BIN="$HOME/.local/bin/codex" \
-CODEX_ORIGINAL_HOME="$HOME/.codex" \
-CODEX_ACCOUNTS="1:$HOME/.codex-1 2:$HOME/.codex-2 3:$HOME/.codex-3" \
-bash install.sh --dry-run
-```
-
-Install:
-
-```bash
-CODEX_BIN="$HOME/.local/bin/codex" \
-CODEX_ORIGINAL_HOME="$HOME/.codex" \
-CODEX_ACCOUNTS="1:$HOME/.codex-1 2:$HOME/.codex-2 3:$HOME/.codex-3" \
 bash install.sh
 ```
 
-The installer keeps the original Codex binary unchanged, creates the profiles, and links the shared Codex state.
+The setup wizard asks:
 
-## Login additional profiles
+1. how many profiles you want;
+2. whether you want to name them;
+3. for final confirmation before making changes.
 
-The first profile inherits the existing Codex login. Additional profiles start logged out.
+Names are optional. Press Enter to use numeric defaults such as `1`, `2`, and `3`.
+
+The first profile uses your current Codex login. Additional profiles start logged out:
 
 ```bash
 codexpm login 2
 codexpm login 3
 ```
 
-Verify:
+With named profiles:
 
 ```bash
-codexpm status
+codexpm login work
+codexpm login backup
+```
+
+### Non-interactive install
+
+```bash
+CODEX_BIN="$HOME/.local/bin/codex" \
+CODEX_ORIGINAL_HOME="$HOME/.codex" \
+CODEX_ACCOUNTS="personal:$HOME/.codex-personal work:$HOME/.codex-work" \
+bash install.sh --yes
+```
+
+Preview either setup without changing files:
+
+```bash
+bash install.sh --wizard --dry-run
 ```
 
 ## Main commands
 
 ```bash
-codexpm list                  # list configured profiles
-codexpm status                # show login status for every profile
-codexpm use 2                 # select profile 2
-codexpm next                  # rotate to the next profile
-codexpm add 4                 # add another profile
-codexpm login 4               # log in the new profile
-codexpm logout 4              # log out one profile
-codexpm run                   # resume the latest session
-codexpm run new               # start a fresh session
-codexpm run all               # resume across all sessions
-codexpm doctor                # validate the setup
+codexpm list                         # list configured profiles
+codexpm status                       # show login status
+codexpm use work                     # select a profile
+codexpm next                         # rotate to the next profile
+codexpm add backup                   # add a profile
+codexpm login backup                 # log in that profile
+codexpm logout backup                # log out that profile
+codexpm run                          # resume the latest session
+codexpm run new                      # start a fresh session
+codexpm run all                      # resume across all sessions
+codexpm doctor                       # validate the setup
 ```
 
-The rotation order follows `CODEX_ACCOUNTS`:
+The rotation order follows the profile order created during setup.
+
+## Remove a profile
+
+Remove it from the rotation while preserving its local files:
 
 ```bash
-CODEX_ACCOUNTS="main:$HOME/.codex-main work:$HOME/.codex-work backup:$HOME/.codex-backup"
+codexpm remove backup
 ```
 
-```text
-main -> work -> backup -> main
+Remove it and permanently delete its local profile directory:
+
+```bash
+codexpm remove backup --delete-files
 ```
+
+Shared sessions and history remain in the original Codex home. The last configured profile cannot be removed accidentally.
+
+## Uninstall
+
+Remove the manager commands and shell integration while preserving profile files and configuration:
+
+```bash
+codexpm uninstall
+```
+
+Remove the manager and its verified profile directories, returning to the original Codex setup:
+
+```bash
+codexpm uninstall --purge
+```
+
+The original Codex binary, original `~/.codex` directory, and backups are never removed.
 
 ## Optional `codex` command
 
-To make `codex` use the profile manager while leaving the original binary untouched:
+To make `codex` use the active managed profile:
 
 ```bash
 cat templates/bashrc-snippet.sh >> ~/.bashrc
@@ -150,6 +179,16 @@ Then:
 codex          # resume with the active profile
 codex new      # start a new session
 codex status   # show profile statuses
+```
+
+## Upgrade
+
+From a repository checkout:
+
+```bash
+git pull
+bash install.sh --upgrade
+codexpm doctor
 ```
 
 ## Configuration
@@ -166,11 +205,9 @@ See [`templates/config.env.example`](templates/config.env.example).
 
 - [Frequently asked questions](docs/FAQ.md)
 - [Architecture](docs/architecture.md)
-- [Add a profile](docs/add-account.md)
-- [Migration from older installations](docs/migration.md)
+- [Add or remove a profile](docs/add-account.md)
 - [Restore and uninstall](docs/restore.md)
 - [Troubleshooting](docs/troubleshooting.md)
-- [v1.0.0 release notes](docs/releases/v1.0.0.md)
 
 ## Security
 
