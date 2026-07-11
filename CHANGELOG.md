@@ -1,17 +1,23 @@
 # Changelog
 
+## 1.1.0
+
+- Added an interactive setup wizard for choosing the number of profiles.
+- Added optional custom profile names with numeric defaults.
+- Added `codexpm remove` with safe file-preserving behavior by default.
+- Added `codexpm remove --delete-files` for verified profile deletion.
+- Added `codexpm uninstall` and `codexpm uninstall --purge`.
+- Added managed-profile markers to prevent unsafe directory deletion.
+- Added lifecycle tests for setup, removal, active-profile reassignment, and uninstall.
+
 ## 1.0.0
 
-- Renamed the project concept to `codex-profile-manager`.
 - Added the `codexpm` command for N-profile management.
-- Added safe account creation without copying authentication tokens.
+- Added safe profile creation without copying authentication tokens.
 - Replaced share-everything behavior with a configurable allowlist.
-- Added per-user locking, backup free-space checks, migration, diagnostics, and uninstall support.
+- Added per-user locking, backup validation, migration, diagnostics, and uninstall support.
 - Preserved compatibility wrappers for `codex_smart`, `codex_switch`, and `codex_add_account`.
 - Added ShellCheck and integration-test CI.
-- Added strict validation for absolute paths, duplicate profile ids, and duplicate profile directories.
-- Made custom configuration paths persist across install, migration, and profile additions.
-- Prevented backup directories inside the original Codex home.
+- Added strict validation for paths, duplicate profile ids, and duplicate profile directories.
 - Added lock-contention handling with a dedicated temporary-failure exit code.
-- Expanded `doctor` to validate link targets, permissions, auth isolation, and duplicate auth files.
-- Added edge-case regression tests and a CI guard against tracked credentials or Codex runtime state.
+- Expanded `doctor` to validate link targets, permissions, and authentication isolation.
