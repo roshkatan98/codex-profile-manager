@@ -9,6 +9,10 @@ codexpm_account_ids() {
   done
 }
 
+codexpm_account_count() {
+  codexpm_account_ids | awk 'NF {count++} END {print count + 0}'
+}
+
 codexpm_account_path() {
   local wanted="$1" entry id
   local -a entries
@@ -89,6 +93,34 @@ codexpm_is_shared_name() {
   return 1
 }
 
+codexpm_profile_marker_path() {
+  printf '%s/%s\n' "$1" "$CODEXPM_PROFILE_MARKER"
+}
+
+codexpm_write_profile_marker() {
+  local id="$1" profile="$2" marker
+  marker="$(codexpm_profile_marker_path "$profile")"
+  cat > "$marker" <<EOF_MARKER
+managed_by=codex-profile-manager
+profile_id=$id
+original_home=$CODEX_ORIGINAL_HOME
+EOF_MARKER
+  chmod 600 "$marker"
+}
+
+codexpm_profile_is_managed() {
+  local id="$1" profile="$2" marker
+  marker="$(codexpm_profile_marker_path "$profile")"
+
+  [ -d "$profile" ] || return 1
+  [ ! -L "$profile" ] || return 1
+  [ -f "$marker" ] || return 1
+  [ ! -L "$marker" ] || return 1
+  grep -Fqx 'managed_by=codex-profile-manager' "$marker" || return 1
+  grep -Fqx "profile_id=$id" "$marker" || return 1
+  grep -Fqx "original_home=$CODEX_ORIGINAL_HOME" "$marker" || return 1
+}
+
 codexpm_link_shared_state() {
   local profile="$1" candidate name destination
   mkdir -p "$profile"
@@ -126,7 +158,7 @@ codexpm_create_profile() {
     return 1
   }
 
-  [ ! -e "$profile" ] || {
+  [ ! -e "$profile" ] && [ ! -L "$profile" ] || {
     echo "Profile already exists: $profile" >&2
     return 1
   }
@@ -138,7 +170,7 @@ codexpm_create_profile() {
   if [ "$copy_auth" = "1" ]; then
     [ -f "$CODEX_ORIGINAL_HOME/auth.json" ] || {
       echo "Missing original auth.json: $CODEX_ORIGINAL_HOME/auth.json" >&2
-      [ "$created" = "0" ] || rm -rf "$profile"
+      [ "$created" = "0" ] || rm -rf -- "${profile:?}"
       return 1
     }
     cp -pL "$CODEX_ORIGINAL_HOME/auth.json" "$profile/auth.json"
@@ -146,9 +178,11 @@ codexpm_create_profile() {
   fi
 
   if ! codexpm_link_shared_state "$profile"; then
-    [ "$created" = "0" ] || rm -rf "$profile"
+    [ "$created" = "0" ] || rm -rf -- "${profile:?}"
     return 1
   fi
+
+  codexpm_write_profile_marker "$id" "$profile"
 }
 
 codexpm_add_account_to_config() {
@@ -174,14 +208,68 @@ codexpm_add_account_to_config() {
   fi
 }
 
+codexpm_remove_account_from_config() {
+  local wanted="$1" entry id old_accounts target
+  local -a entries remaining=()
+
+  old_accounts="$CODEX_ACCOUNTS"
+  read -r -a entries <<< "$CODEX_ACCOUNTS"
+  for entry in "${entries[@]}"; do
+    id="${entry%%:*}"
+    if [ "$id" != "$wanted" ]; then
+      remaining+=("$entry")
+    fi
+  done
+
+  CODEX_ACCOUNTS="${remaining[*]}"
+  if ! codexpm_validate_config; then
+    CODEX_ACCOUNTS="$old_accounts"
+    return 1
+  fi
+
+  target="$(codexpm_config_write_target)"
+  if ! codexpm_write_config "$target"; then
+    CODEX_ACCOUNTS="$old_accounts"
+    return 1
+  fi
+}
+
+codexpm_delete_profile() {
+  local id="$1" profile="$2"
+
+  if [ "$profile" = "/" ] || [ "$profile" = "$HOME" ] || [ "$profile" = "$CODEX_ORIGINAL_HOME" ]; then
+    echo "Refusing to delete unsafe profile path: $profile" >&2
+    return 1
+  fi
+
+  case "$profile/" in
+    "$CODEX_ORIGINAL_HOME"/*)
+      echo "Refusing to delete a profile inside the original Codex home: $profile" >&2
+      return 1
+      ;;
+  esac
+
+  codexpm_profile_is_managed "$id" "$profile" || {
+    echo "Refusing to delete an unverified profile directory: $profile" >&2
+    return 1
+  }
+
+  rm -rf -- "${profile:?}"
+}
+
 codexpm_migrate_profile_links() {
-  local profile="$1" item name target
+  local profile="$1" id="${2:-}" item name target
   [ -d "$profile" ] || return 0
+  [ ! -L "$profile" ] || {
+    echo "Refusing to migrate symlinked profile directory: $profile" >&2
+    return 1
+  }
 
   for item in "$profile"/* "$profile"/.[!.]*; do
     [ -e "$item" ] || [ -L "$item" ] || continue
     name="$(basename "$item")"
     [ "$name" != "auth.json" ] || continue
+    [ "$name" != "$CODEXPM_PROFILE_MARKER" ] || continue
 
     if [ -L "$item" ] && ! codexpm_is_shared_name "$name"; then
       target="$(readlink -f "$item" 2>/dev/null || true)"
@@ -193,4 +281,7 @@ codexpm_migrate_profile_links() {
   done
 
   codexpm_link_shared_state "$profile"
+  if [ -n "$id" ]; then
+    codexpm_write_profile_marker "$id" "$profile"
+  fi
 }
