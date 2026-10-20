@@ -5,13 +5,17 @@
 [![Shell](https://img.shields.io/badge/shell-Bash%204%2B-4EAA25?logo=gnubash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![Platform](https://img.shields.io/badge/platform-Linux-blue?logo=linux&logoColor=white)](https://www.kernel.org/)
 
-An unofficial profile manager for Codex CLI.
+**Switch between multiple Codex CLI accounts without logging in again every time - and keep your sessions, history, configuration, and project context together.**
 
-Use multiple legitimate Codex authentication profiles on one machine while sharing the same sessions, history, configuration, and project context.
+`codex-profile-manager` (`codexpm`) is an unofficial, Linux-first Bash tool for developers using multiple legitimate Codex accounts (such as work and personal accounts). Each profile has its own authentication, while an explicit allowlist shares selected Codex state across profiles.
 
-> This project is not affiliated with or endorsed by OpenAI. It does not modify the Codex binary and is not intended to bypass service limits or terms.
+**Already logged in?** Switch to another configured profile with `codexpm use work`, then launch Codex with `codexpm run`. No repeated logout/login cycle.
+
+> Independent community project; not affiliated with or endorsed by OpenAI. Does not modify the Codex binary or bypass account limits, policies, or terms.
 
 ## Demo
+
+![Terminal demo of Codex Profile Manager switching from personal to work and offering to resume with backup](docs/assets/terminal-demo.svg)
 
 ```console
 $ codexpm list
@@ -36,7 +40,9 @@ Switched Codex profile: work -> backup
 
 Codex stores local state under a Codex home directory, usually `~/.codex`.
 
-Completely separate homes split your sessions and context. A single shared home mixes authentication. `codex-profile-manager` separates authentication while sharing the Codex state you want to keep.
+Completely separate `CODEX_HOME` directories split your sessions and context. A single shared home mixes authentication. `codex-profile-manager` instead uses isolated authentication profiles and shares only explicitly allowlisted state.
+
+This is **switching between Codex CLI launches**, not hot-switching an already-running Codex process. Because the profiles share mutable state, `codexpm run` also uses a lock to prevent simultaneous managed sessions. For strictly isolated work/personal state, separate `CODEX_HOME` directories are a better fit.
 
 ```mermaid
 flowchart TB
